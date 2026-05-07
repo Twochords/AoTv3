@@ -3,13 +3,18 @@
 -- Dry-run first by default. This script updates no rows when @DryRun = 1.
 --
 -- Deterministic ID strategy:
---   Normal       = base.id + 900000000
---   Enlightened  = base.id + 910000000
---   Transcendent = base.id + 920000000
+--   Normal       = base.id + 200000
+--   Enlightened  = base.id + 400000
+--   Transcendent = base.id + 600000
+--
+-- IMPORTANT:
+--   Large item IDs (e.g. 900M+ offsets) can crash EQEmu shared_memory because
+--   EQ::FixedMemoryHashSet uses direct-indexed storage by max item ID.
+--   Keep generated IDs in a low range to avoid oversized allocation/segfaults.
 --
 -- Safety constraints:
 --   * Excludes already-generated tier names from base eligibility.
---   * Excludes base IDs >= 900000000.
+--   * Excludes base IDs >= 200000.
 --   * Skips row creation when target ID or target name already exists.
 --   * Guards against target ID overflow based on items.id column type.
 --   * Truncates base names to ensure final Name length never exceeds 64 chars.
@@ -20,9 +25,9 @@
 
 SET @DryRun := 1;
 
-SET @NormalOffset       := 900000000;
-SET @EnlightenedOffset  := 910000000;
-SET @TranscendentOffset := 920000000;
+SET @NormalOffset       := 200000;
+SET @EnlightenedOffset  := 400000;
+SET @TranscendentOffset := 600000;
 
 SET @NormalNameSuffix       := ' [Normal]';
 SET @EnlightenedNameSuffix  := ' [Enlightened]';
@@ -64,7 +69,7 @@ SELECT
   i.id,
   i.`Name`
 FROM items i
-WHERE i.id < 900000000
+WHERE i.id < 200000
   AND i.`Name` IS NOT NULL
   AND TRIM(i.`Name`) <> ''
   AND i.`Name` NOT LIKE '%[Normal]%'
@@ -78,7 +83,7 @@ SET @before_total_items := (SELECT COUNT(*) FROM items);
 SET @total_base_items   := (
   SELECT COUNT(*)
   FROM items i
-  WHERE i.id < 900000000
+  WHERE i.id < 200000
     AND i.`Name` IS NOT NULL
     AND TRIM(i.`Name`) <> ''
 );
