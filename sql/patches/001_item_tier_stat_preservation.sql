@@ -12,6 +12,7 @@
 --   * Excludes base IDs >= 900000000.
 --   * Skips row creation when target ID or target name already exists.
 --   * Guards against target ID overflow based on items.id column type.
+--   * Truncates base names to ensure final Name length never exceeds 64 chars.
 --
 -- Mode:
 --   @DryRun = 1  -> no inserts, preview/metrics only
@@ -89,7 +90,7 @@ SET @normal_projected := (
   LEFT JOIN items idc
     ON idc.id = eb.id + @NormalOffset
   LEFT JOIN items namec
-    ON namec.`Name` = CONCAT(eb.`Name`, @NormalNameSuffix)
+    ON namec.`Name` = CONCAT(LEFT(eb.`Name`, 64 - CHAR_LENGTH(@NormalNameSuffix)), @NormalNameSuffix)
   WHERE eb.id + @NormalOffset <= @ItemIdMax
     AND idc.id IS NULL
     AND namec.id IS NULL
@@ -101,7 +102,7 @@ SET @enlightened_projected := (
   LEFT JOIN items idc
     ON idc.id = eb.id + @EnlightenedOffset
   LEFT JOIN items namec
-    ON namec.`Name` = CONCAT(eb.`Name`, @EnlightenedNameSuffix)
+    ON namec.`Name` = CONCAT(LEFT(eb.`Name`, 64 - CHAR_LENGTH(@EnlightenedNameSuffix)), @EnlightenedNameSuffix)
   WHERE eb.id + @EnlightenedOffset <= @ItemIdMax
     AND idc.id IS NULL
     AND namec.id IS NULL
@@ -113,7 +114,7 @@ SET @transcendent_projected := (
   LEFT JOIN items idc
     ON idc.id = eb.id + @TranscendentOffset
   LEFT JOIN items namec
-    ON namec.`Name` = CONCAT(eb.`Name`, @TranscendentNameSuffix)
+    ON namec.`Name` = CONCAT(LEFT(eb.`Name`, 64 - CHAR_LENGTH(@TranscendentNameSuffix)), @TranscendentNameSuffix)
   WHERE eb.id + @TranscendentOffset <= @ItemIdMax
     AND idc.id IS NULL
     AND namec.id IS NULL
@@ -143,6 +144,13 @@ SELECT
 SELECT
   eb.id AS base_id,
   eb.`Name` AS base_name,
+  CHAR_LENGTH(eb.`Name`) AS base_name_len,
+  CONCAT(LEFT(eb.`Name`, 64 - CHAR_LENGTH(@NormalNameSuffix)), @NormalNameSuffix) AS normal_name,
+  CHAR_LENGTH(CONCAT(LEFT(eb.`Name`, 64 - CHAR_LENGTH(@NormalNameSuffix)), @NormalNameSuffix)) AS normal_name_len,
+  CONCAT(LEFT(eb.`Name`, 64 - CHAR_LENGTH(@EnlightenedNameSuffix)), @EnlightenedNameSuffix) AS enlightened_name,
+  CHAR_LENGTH(CONCAT(LEFT(eb.`Name`, 64 - CHAR_LENGTH(@EnlightenedNameSuffix)), @EnlightenedNameSuffix)) AS enlightened_name_len,
+  CONCAT(LEFT(eb.`Name`, 64 - CHAR_LENGTH(@TranscendentNameSuffix)), @TranscendentNameSuffix) AS transcendent_name,
+  CHAR_LENGTH(CONCAT(LEFT(eb.`Name`, 64 - CHAR_LENGTH(@TranscendentNameSuffix)), @TranscendentNameSuffix)) AS transcendent_name_len,
   eb.id + @NormalOffset AS projected_normal_id,
   eb.id + @EnlightenedOffset AS projected_enlightened_id,
   eb.id + @TranscendentOffset AS projected_transcendent_id,
@@ -160,11 +168,11 @@ LEFT JOIN items ide
 LEFT JOIN items idt
   ON idt.id = eb.id + @TranscendentOffset
 LEFT JOIN items namen
-  ON namen.`Name` = CONCAT(eb.`Name`, @NormalNameSuffix)
+  ON namen.`Name` = CONCAT(LEFT(eb.`Name`, 64 - CHAR_LENGTH(@NormalNameSuffix)), @NormalNameSuffix)
 LEFT JOIN items namee
-  ON namee.`Name` = CONCAT(eb.`Name`, @EnlightenedNameSuffix)
+  ON namee.`Name` = CONCAT(LEFT(eb.`Name`, 64 - CHAR_LENGTH(@EnlightenedNameSuffix)), @EnlightenedNameSuffix)
 LEFT JOIN items namet
-  ON namet.`Name` = CONCAT(eb.`Name`, @TranscendentNameSuffix)
+  ON namet.`Name` = CONCAT(LEFT(eb.`Name`, 64 - CHAR_LENGTH(@TranscendentNameSuffix)), @TranscendentNameSuffix)
 ORDER BY eb.id
 LIMIT 25;
 
@@ -174,7 +182,7 @@ LIMIT 25;
 SELECT GROUP_CONCAT(
   CASE c.column_name
     WHEN 'id'        THEN CONCAT('base.`id` + ', @NormalOffset, ' AS `id`')
-    WHEN 'Name'      THEN CONCAT('CONCAT(base.`Name`, ''', @NormalNameSuffix, ''') AS `Name`')
+    WHEN 'Name'      THEN CONCAT('CONCAT(LEFT(base.`Name`, 64 - CHAR_LENGTH(''', @NormalNameSuffix, ''')), ''', @NormalNameSuffix, ''') AS `Name`')
     WHEN 'loregroup' THEN '0 AS `loregroup`'
     WHEN 'nodrop'    THEN CONCAT(@FLAG_TRADEABLE, ' AS `nodrop`')
     WHEN 'classes'   THEN CONCAT(@ALL_CLASSES, ' AS `classes`')
@@ -196,7 +204,7 @@ SET @normal_sql = CONCAT(
   'FROM `items` base ',
   'JOIN tmp_eligible_base eb ON eb.`id` = base.`id` ',
   'LEFT JOIN `items` idc ON idc.`id` = base.`id` + ', @NormalOffset, ' ',
-  'LEFT JOIN `items` namec ON namec.`Name` = CONCAT(base.`Name`, ''', @NormalNameSuffix, ''') ',
+  'LEFT JOIN `items` namec ON namec.`Name` = CONCAT(LEFT(base.`Name`, 64 - CHAR_LENGTH(''', @NormalNameSuffix, ''')), ''', @NormalNameSuffix, ''') ',
   'WHERE ', @DryRun, ' = 0 ',
   'AND base.`id` + ', @NormalOffset, ' <= ', @ItemIdMax, ' ',
   'AND idc.`id` IS NULL ',
@@ -214,7 +222,7 @@ DEALLOCATE PREPARE stmt_normal;
 SELECT GROUP_CONCAT(
   CASE c.column_name
     WHEN 'id'        THEN CONCAT('base.`id` + ', @EnlightenedOffset, ' AS `id`')
-    WHEN 'Name'      THEN CONCAT('CONCAT(base.`Name`, ''', @EnlightenedNameSuffix, ''') AS `Name`')
+    WHEN 'Name'      THEN CONCAT('CONCAT(LEFT(base.`Name`, 64 - CHAR_LENGTH(''', @EnlightenedNameSuffix, ''')), ''', @EnlightenedNameSuffix, ''') AS `Name`')
 
     -- Main stats doubled
     WHEN 'astr'      THEN 'COALESCE(base.`astr`,0) * 2 AS `astr`'
@@ -283,7 +291,7 @@ SET @enlightened_sql = CONCAT(
   'FROM `items` base ',
   'JOIN tmp_eligible_base eb ON eb.`id` = base.`id` ',
   'LEFT JOIN `items` idc ON idc.`id` = base.`id` + ', @EnlightenedOffset, ' ',
-  'LEFT JOIN `items` namec ON namec.`Name` = CONCAT(base.`Name`, ''', @EnlightenedNameSuffix, ''') ',
+  'LEFT JOIN `items` namec ON namec.`Name` = CONCAT(LEFT(base.`Name`, 64 - CHAR_LENGTH(''', @EnlightenedNameSuffix, ''')), ''', @EnlightenedNameSuffix, ''') ',
   'WHERE ', @DryRun, ' = 0 ',
   'AND base.`id` + ', @EnlightenedOffset, ' <= ', @ItemIdMax, ' ',
   'AND idc.`id` IS NULL ',
@@ -301,7 +309,7 @@ DEALLOCATE PREPARE stmt_enlightened;
 SELECT GROUP_CONCAT(
   CASE c.column_name
     WHEN 'id'        THEN CONCAT('base.`id` + ', @TranscendentOffset, ' AS `id`')
-    WHEN 'Name'      THEN CONCAT('CONCAT(base.`Name`, ''', @TranscendentNameSuffix, ''') AS `Name`')
+    WHEN 'Name'      THEN CONCAT('CONCAT(LEFT(base.`Name`, 64 - CHAR_LENGTH(''', @TranscendentNameSuffix, ''')), ''', @TranscendentNameSuffix, ''') AS `Name`')
 
     -- Main stats doubled
     WHEN 'astr'      THEN 'COALESCE(base.`astr`,0) * 2 AS `astr`'
@@ -371,7 +379,7 @@ SET @transcendent_sql = CONCAT(
   'FROM `items` base ',
   'JOIN tmp_eligible_base eb ON eb.`id` = base.`id` ',
   'LEFT JOIN `items` idc ON idc.`id` = base.`id` + ', @TranscendentOffset, ' ',
-  'LEFT JOIN `items` namec ON namec.`Name` = CONCAT(base.`Name`, ''', @TranscendentNameSuffix, ''') ',
+  'LEFT JOIN `items` namec ON namec.`Name` = CONCAT(LEFT(base.`Name`, 64 - CHAR_LENGTH(''', @TranscendentNameSuffix, ''')), ''', @TranscendentNameSuffix, ''') ',
   'WHERE ', @DryRun, ' = 0 ',
   'AND base.`id` + ', @TranscendentOffset, ' <= ', @ItemIdMax, ' ',
   'AND idc.`id` IS NULL ',
@@ -409,12 +417,16 @@ SELECT
 SELECT
   eb.id AS base_id,
   b.`Name` AS base_name,
+  CHAR_LENGTH(b.`Name`) AS base_name_len,
   n.id AS normal_id,
   n.`Name` AS normal_name,
+  CHAR_LENGTH(n.`Name`) AS normal_name_len,
   e.id AS enlightened_id,
   e.`Name` AS enlightened_name,
+  CHAR_LENGTH(e.`Name`) AS enlightened_name_len,
   t.id AS transcendent_id,
   t.`Name` AS transcendent_name,
+  CHAR_LENGTH(t.`Name`) AS transcendent_name_len,
   b.ac AS base_ac,
   n.ac AS normal_ac,
   e.ac AS enlightened_ac,
