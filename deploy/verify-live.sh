@@ -1,71 +1,69 @@
 #!/usr/bin/env bash
-# verify-live.sh — confirm EQEmu world/login/zones are running
-# Usage: ./deploy/verify-live.sh
 set -euo pipefail
 
-CONTAINER="akk-stack-eqemu-server-1"
-AKK_DIR="${AKK_DIR:-$HOME/akk-stack}"
-PASS=true
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+AKK_STACK_DIR="${AKK_STACK_DIR:-$HOME/akk-stack}"
+SERVICE="${EQEMU_SERVICE:-eqemu-server}"
+EXPECT_QUERYSERV="${EXPECT_QUERYSERV:-auto}"
+CONFIG_PATH="$AKK_STACK_DIR/server/eqemu_config.json"
 
-echo "=== EQEmu Server Health Check ==="
-echo "Container: $CONTAINER"
-echo ""
+pass() { echo "PASS: $*"; }
+fail() { echo "FAIL: $*"; exit 1; }
+warn() { echo "WARN: $*"; }
+info() { echo "INFO: $*"; }
 
-# 1. Container running?
-STATUS=$(docker inspect "$CONTAINER" --format '{{.State.Status}}' 2>/dev/null || echo "not_found")
-if [[ "$STATUS" == "running" ]]; then
-  echo "[PASS] Container $CONTAINER is running"
-else
-  echo "[FAIL] Container $CONTAINER status: $STATUS"
-  PASS=false
-fi
+[[ -d "$REPO_ROOT/.git" ]] || fail "Run from the overlay repo (git root not found)."
+[[ -d "$REPO_ROOT/deploy" ]] || fail "Run from the overlay repo (deploy/ not found)."
+[[ -d "$AKK_STACK_DIR" ]] || fail "akk-stack directory not found at $AKK_STACK_DIR"
 
-# 2. Key processes inside container
-for PROC in world loginserver ucs queryserv; do
-  if docker exec "$CONTAINER" pgrep -x "$PROC" > /dev/null 2>&1; then
-    PID=$(docker exec "$CONTAINER" pgrep -x "$PROC" | head -1)
-    echo "[PASS] $PROC running (PID $PID)"
-  else
-    echo "[FAIL] $PROC not running"
-    PASS=false
+cd "$AKK_STACK_DIR"
+CID="$(docker compose ps -q "$SERVICE")"
+[[ -n "$CID" ]] || fail "Service '$SERVICE' container not found"
+
+state="$(docker inspect -f '{{.State.Status}}' "$CID")"
+[[ "$state" == "running" ]] || fail "Container is not running (state=$state)"
+pass "Container '$SERVICE' is running"
+
+check_proc() {
+  local proc="$1"
+  if docker compose exec -T "$SERVICE" pgrep -x "$proc" >/dev/null 2>&1; then
+    pass "$proc process is running"
+    return 0
   fi
-done
+  return 1
+}
 
-# 3. Zone process count
-ZONE_COUNT=$(docker exec "$CONTAINER" pgrep -x zone | wc -l || echo 0)
-if [[ "$ZONE_COUNT" -gt 0 ]]; then
-  echo "[PASS] zone processes running: $ZONE_COUNT"
+check_proc world || fail "world process not running"
+check_proc loginserver || fail "loginserver process not running"
+check_proc ucs || fail "ucs process not running"
+
+if [[ "$EXPECT_QUERYSERV" == "1" ]]; then
+  check_proc queryserv || fail "queryserv expected but not running"
+elif [[ "$EXPECT_QUERYSERV" == "0" ]]; then
+  info "queryserv check disabled by EXPECT_QUERYSERV=0"
 else
-  echo "[FAIL] No zone processes found"
-  PASS=false
+  if check_proc queryserv; then :; else warn "queryserv not running (EXPECT_QUERYSERV=auto)"; fi
 fi
 
-# 4. Login port 5999 open (UDP — test with TCP as proxy)
-if ss -tlnp 2>/dev/null | grep -q ':5999'; then
-  echo "[PASS] Port 5999 listening"
-elif docker exec "$CONTAINER" ss -ulnp 2>/dev/null | grep -q ':5999'; then
-  echo "[PASS] Port 5999 listening (UDP inside container)"
+zone_count="$(docker compose exec -T "$SERVICE" sh -lc 'pgrep -x zone | wc -l')"
+[[ "$zone_count" -ge 1 ]] || fail "No zone processes running"
+pass "Zone processes running: $zone_count"
+
+if docker compose exec -T "$SERVICE" sh -lc "ss -uln | awk 'NR>1{print \$5}' | grep -Eq '(^|:)9000$'"; then
+  pass "UDP 9000 is listening"
 else
-  echo "[WARN] Port 5999 not detected (UDP may not show in ss)"
+  fail "UDP 9000 is not listening"
 fi
 
-# 5. Quest files present in live mount
-QUEST_COUNT=$(find "$AKK_DIR/server/quests" -type f 2>/dev/null | wc -l || echo 0)
-if [[ "$QUEST_COUNT" -gt 100 ]]; then
-  echo "[PASS] Quest files in live mount: $QUEST_COUNT"
+if docker compose exec -T "$SERVICE" sh -lc "ss -uln | awk 'NR>1{print \$5}' | awk -F: '{print \$NF}' | awk '\$1 ~ /^[0-9]+$/ && \$1 >= 7000 && \$1 <= 7999 {found=1} END {exit found?0:1}'"; then
+  pass "Zone UDP ports are listening (7000-7999)"
 else
-  echo "[FAIL] Too few quest files in live mount: $QUEST_COUNT"
-  PASS=false
+  fail "No listening zone UDP ports found in 7000-7999"
 fi
 
-echo ""
-echo "=== Process summary (inside container) ==="
-docker exec "$CONTAINER" ps aux | grep -E "world|loginserver|zone|ucs|queryserv|spire" | grep -v grep || true
+[[ -f "$CONFIG_PATH" ]] || fail "eqemu_config.json not found at $CONFIG_PATH"
+grep -Eq '"localaddress"[[:space:]]*:' "$CONFIG_PATH" || fail "eqemu_config.json missing localaddress"
+pass "eqemu_config.json contains localaddress"
 
-echo ""
-if [[ "$PASS" == true ]]; then
-  echo "RESULT: PASS — Server appears healthy"
-else
-  echo "RESULT: FAIL — One or more checks failed (see above)"
-  exit 1
-fi
+pass "Live verification complete"

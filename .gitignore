@@ -63,3 +63,11 @@ desktop.ini
 .vscode/
 .idea/
 *.iml
+backups/
+*.log
+*.tmp
+*.bak
+.env
+eqemu_config.json
+*.sql.gz
+*.dump
