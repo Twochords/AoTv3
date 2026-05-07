@@ -1,0 +1,65 @@
+# ──────────────────────────────────────────────
+# EQEmu server overlay — .gitignore
+# ──────────────────────────────────────────────
+
+# Logs
+*.log
+*.log.*
+
+# Backups / temp
+*.bak
+*.tmp
+*.pid
+*.swp
+*~
+
+# Secrets / environment
+.env
+.env.*
+eqemu_config.json
+
+# Docker volumes and compose overrides (never commit)
+docker-compose.override.yml
+volumes/
+data/
+
+# Database dumps — only explicit patches under sql/ are tracked
+*.sql.gz
+*.dump
+*.dmp
+# Allow sql/patches and sql/rollback explicitly
+!sql/patches/**
+!sql/rollback/**
+
+# EQEmu binaries and build output
+*.exe
+*.so
+*.a
+*.o
+*.d
+build/
+bin/
+CMakeFiles/
+CMakeCache.txt
+Makefile
+cmake_install.cmake
+
+# Shared memory cache
+eqemu_shared_memory
+eqemu_shared_memory.conf
+
+# Crash dumps / core files
+core
+core.*
+*.core
+crashdumps/
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+.idea/
+*.iml

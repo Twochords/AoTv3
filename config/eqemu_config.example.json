@@ -1,0 +1,43 @@
+{
+  "_comment": "Copy this file to eqemu_config.json and fill in real values. NEVER commit eqemu_config.json.",
+  "server": {
+    "world": {
+      "shortname": "YOURSERVER",
+      "longname": "Your EQEmu Server",
+      "address": "YOUR.PUBLIC.IP",
+      "localaddress": "YOUR.LAN.IP",
+      "loginserver1": {
+        "host": "127.0.0.1",
+        "port": "5999",
+        "account": "local",
+        "password": "CHANGE_ME",
+        "legacy": "0"
+      }
+    },
+    "database": {
+      "host": "mariadb",
+      "port": "3306",
+      "username": "eqemu",
+      "password": "CHANGE_ME",
+      "db": "peq"
+    },
+    "qsdatabase": {
+      "host": "mariadb",
+      "port": "3306",
+      "username": "eqemu",
+      "password": "CHANGE_ME",
+      "db": "peq"
+    },
+    "chatserver": {
+      "port": "7778",
+      "host": "127.0.0.1"
+    },
+    "mailserver": {
+      "host": "127.0.0.1",
+      "port": "7778"
+    }
+  },
+  "spire": {
+    "launcher_start": true
+  }
+}
