@@ -1,19 +1,31 @@
 -- 001_item_tier_stat_preservation.sql
--- Idempotent item tier generator: Normal, Enlightened, Transcendent
--- Preserves all original item columns unless explicitly overridden by tier rules.
--- NOTE: This patch does not auto-run against live DB in this workflow.
+-- Full-item tier generator: Normal, Enlightened, Transcendent
+-- Dry-run first by default. This script updates no rows when @DryRun = 1.
+--
+-- Deterministic ID strategy:
+--   Normal       = base.id + 900000000
+--   Enlightened  = base.id + 910000000
+--   Transcendent = base.id + 920000000
+--
+-- Safety constraints:
+--   * Excludes already-generated tier names from base eligibility.
+--   * Excludes base IDs >= 900000000.
+--   * Skips row creation when target ID or target name already exists.
+--   * Guards against target ID overflow based on items.id column type.
+--
+-- Mode:
+--   @DryRun = 1  -> no inserts, preview/metrics only
+--   @DryRun = 0  -> perform inserts
 
--- =========================
--- Input IDs (edit as needed)
--- =========================
-SET @BaseItemID          := 1000;
-SET @NormalItemID        := 900001000;
-SET @EnlightenedItemID   := 900001001;
-SET @TranscendentItemID  := 900001002;
+SET @DryRun := 1;
 
-SET @NormalNameSuffix        := ' [Normal]';
-SET @EnlightenedNameSuffix   := ' [Enlightened]';
-SET @TranscendentNameSuffix  := ' [Transcendent]';
+SET @NormalOffset       := 900000000;
+SET @EnlightenedOffset  := 910000000;
+SET @TranscendentOffset := 920000000;
+
+SET @NormalNameSuffix       := ' [Normal]';
+SET @EnlightenedNameSuffix  := ' [Enlightened]';
+SET @TranscendentNameSuffix := ' [Transcendent]';
 
 -- EQEmu/PEQ convention: nodrop=1 means tradeable, nodrop=0 means NO DROP.
 SET @FLAG_TRADEABLE := 1;
@@ -25,21 +37,143 @@ SET @ALL_RACES   := 65535;
 SET @db_name := DATABASE();
 SET SESSION group_concat_max_len = 1024 * 1024;
 
--- Soft guard: if base item missing, inserts will no-op by WHERE clause.
+-- Resolve max allowed ID from schema type.
+SELECT
+  CASE
+    WHEN LOCATE('unsigned', LOWER(c.column_type)) > 0 THEN 4294967295
+    ELSE 2147483647
+  END
+INTO @ItemIdMax
+FROM information_schema.columns c
+WHERE c.table_schema = @db_name
+  AND c.table_name = 'items'
+  AND c.column_name = 'id'
+LIMIT 1;
 
--- Build reusable INSERT column list dynamically to preserve schema compatibility.
+-- Build reusable insert column list dynamically to preserve schema compatibility.
 SELECT GROUP_CONCAT(CONCAT('`', c.column_name, '`') ORDER BY c.ordinal_position SEPARATOR ', ')
 INTO @insert_cols
 FROM information_schema.columns c
 WHERE c.table_schema = @db_name
   AND c.table_name = 'items';
 
--- =========================
--- Normal tier (preserve base stats, unlock flags)
--- =========================
+DROP TEMPORARY TABLE IF EXISTS tmp_eligible_base;
+CREATE TEMPORARY TABLE tmp_eligible_base AS
+SELECT
+  i.id,
+  i.`Name`
+FROM items i
+WHERE i.id < 900000000
+  AND i.`Name` IS NOT NULL
+  AND TRIM(i.`Name`) <> ''
+  AND i.`Name` NOT LIKE '%[Normal]%'
+  AND i.`Name` NOT LIKE '%[Enlightened]%'
+  AND i.`Name` NOT LIKE '%[Transcendent]%';
+
+-- -------------------------
+-- Pre-insert metrics
+-- -------------------------
+SET @before_total_items := (SELECT COUNT(*) FROM items);
+SET @total_base_items   := (
+  SELECT COUNT(*)
+  FROM items i
+  WHERE i.id < 900000000
+    AND i.`Name` IS NOT NULL
+    AND TRIM(i.`Name`) <> ''
+);
+SET @eligible_base_items := (SELECT COUNT(*) FROM tmp_eligible_base);
+
+SET @normal_projected := (
+  SELECT COUNT(*)
+  FROM tmp_eligible_base eb
+  LEFT JOIN items idc
+    ON idc.id = eb.id + @NormalOffset
+  LEFT JOIN items namec
+    ON namec.`Name` = CONCAT(eb.`Name`, @NormalNameSuffix)
+  WHERE eb.id + @NormalOffset <= @ItemIdMax
+    AND idc.id IS NULL
+    AND namec.id IS NULL
+);
+
+SET @enlightened_projected := (
+  SELECT COUNT(*)
+  FROM tmp_eligible_base eb
+  LEFT JOIN items idc
+    ON idc.id = eb.id + @EnlightenedOffset
+  LEFT JOIN items namec
+    ON namec.`Name` = CONCAT(eb.`Name`, @EnlightenedNameSuffix)
+  WHERE eb.id + @EnlightenedOffset <= @ItemIdMax
+    AND idc.id IS NULL
+    AND namec.id IS NULL
+);
+
+SET @transcendent_projected := (
+  SELECT COUNT(*)
+  FROM tmp_eligible_base eb
+  LEFT JOIN items idc
+    ON idc.id = eb.id + @TranscendentOffset
+  LEFT JOIN items namec
+    ON namec.`Name` = CONCAT(eb.`Name`, @TranscendentNameSuffix)
+  WHERE eb.id + @TranscendentOffset <= @ItemIdMax
+    AND idc.id IS NULL
+    AND namec.id IS NULL
+);
+
+SET @normal_collisions       := @eligible_base_items - @normal_projected;
+SET @enlightened_collisions  := @eligible_base_items - @enlightened_projected;
+SET @transcendent_collisions := @eligible_base_items - @transcendent_projected;
+SET @collision_count         := @normal_collisions + @enlightened_collisions + @transcendent_collisions;
+
+SET @projected_rows_to_create := @normal_projected + @enlightened_projected + @transcendent_projected;
+
+-- -------------------------
+-- Dry-run visibility
+-- -------------------------
+SELECT
+  @DryRun AS dry_run_mode,
+  @ItemIdMax AS item_id_max,
+  @total_base_items AS total_base_items,
+  @eligible_base_items AS eligible_base_items,
+  @normal_projected AS projected_normal_rows,
+  @enlightened_projected AS projected_enlightened_rows,
+  @transcendent_projected AS projected_transcendent_rows,
+  @projected_rows_to_create AS projected_rows_to_create,
+  @collision_count AS collision_count_total;
+
+SELECT
+  eb.id AS base_id,
+  eb.`Name` AS base_name,
+  eb.id + @NormalOffset AS projected_normal_id,
+  eb.id + @EnlightenedOffset AS projected_enlightened_id,
+  eb.id + @TranscendentOffset AS projected_transcendent_id,
+  CASE WHEN eb.id + @NormalOffset > @ItemIdMax THEN 1 ELSE 0 END AS normal_overflow,
+  CASE WHEN eb.id + @EnlightenedOffset > @ItemIdMax THEN 1 ELSE 0 END AS enlightened_overflow,
+  CASE WHEN eb.id + @TranscendentOffset > @ItemIdMax THEN 1 ELSE 0 END AS transcendent_overflow,
+  CASE WHEN idn.id IS NOT NULL OR namen.id IS NOT NULL THEN 1 ELSE 0 END AS normal_collision,
+  CASE WHEN ide.id IS NOT NULL OR namee.id IS NOT NULL THEN 1 ELSE 0 END AS enlightened_collision,
+  CASE WHEN idt.id IS NOT NULL OR namet.id IS NOT NULL THEN 1 ELSE 0 END AS transcendent_collision
+FROM tmp_eligible_base eb
+LEFT JOIN items idn
+  ON idn.id = eb.id + @NormalOffset
+LEFT JOIN items ide
+  ON ide.id = eb.id + @EnlightenedOffset
+LEFT JOIN items idt
+  ON idt.id = eb.id + @TranscendentOffset
+LEFT JOIN items namen
+  ON namen.`Name` = CONCAT(eb.`Name`, @NormalNameSuffix)
+LEFT JOIN items namee
+  ON namee.`Name` = CONCAT(eb.`Name`, @EnlightenedNameSuffix)
+LEFT JOIN items namet
+  ON namet.`Name` = CONCAT(eb.`Name`, @TranscendentNameSuffix)
+ORDER BY eb.id
+LIMIT 25;
+
+-- -------------------------
+-- Insert Normal tier
+-- -------------------------
 SELECT GROUP_CONCAT(
   CASE c.column_name
-    WHEN 'id'        THEN CONCAT(@NormalItemID, ' AS `id`')
+    WHEN 'id'        THEN CONCAT('base.`id` + ', @NormalOffset, ' AS `id`')
     WHEN 'Name'      THEN CONCAT('CONCAT(base.`Name`, ''', @NormalNameSuffix, ''') AS `Name`')
     WHEN 'loregroup' THEN '0 AS `loregroup`'
     WHEN 'nodrop'    THEN CONCAT(@FLAG_TRADEABLE, ' AS `nodrop`')
@@ -60,20 +194,26 @@ SET @normal_sql = CONCAT(
   'INSERT INTO `items` (', @insert_cols, ') ',
   'SELECT ', @normal_select, ' ',
   'FROM `items` base ',
-  'WHERE base.`id` = ', @BaseItemID, ' ',
-  'AND NOT EXISTS (SELECT 1 FROM `items` i WHERE i.`id` = ', @NormalItemID, ')'
+  'JOIN tmp_eligible_base eb ON eb.`id` = base.`id` ',
+  'LEFT JOIN `items` idc ON idc.`id` = base.`id` + ', @NormalOffset, ' ',
+  'LEFT JOIN `items` namec ON namec.`Name` = CONCAT(base.`Name`, ''', @NormalNameSuffix, ''') ',
+  'WHERE ', @DryRun, ' = 0 ',
+  'AND base.`id` + ', @NormalOffset, ' <= ', @ItemIdMax, ' ',
+  'AND idc.`id` IS NULL ',
+  'AND namec.`id` IS NULL'
 );
 
 PREPARE stmt_normal FROM @normal_sql;
 EXECUTE stmt_normal;
+SET @normal_inserted := ROW_COUNT();
 DEALLOCATE PREPARE stmt_normal;
 
--- =========================
--- Enlightened tier
--- =========================
+-- -------------------------
+-- Insert Enlightened tier
+-- -------------------------
 SELECT GROUP_CONCAT(
   CASE c.column_name
-    WHEN 'id'        THEN CONCAT(@EnlightenedItemID, ' AS `id`')
+    WHEN 'id'        THEN CONCAT('base.`id` + ', @EnlightenedOffset, ' AS `id`')
     WHEN 'Name'      THEN CONCAT('CONCAT(base.`Name`, ''', @EnlightenedNameSuffix, ''') AS `Name`')
 
     -- Main stats doubled
@@ -141,20 +281,26 @@ SET @enlightened_sql = CONCAT(
   'INSERT INTO `items` (', @insert_cols, ') ',
   'SELECT ', @enlightened_select, ' ',
   'FROM `items` base ',
-  'WHERE base.`id` = ', @BaseItemID, ' ',
-  'AND NOT EXISTS (SELECT 1 FROM `items` i WHERE i.`id` = ', @EnlightenedItemID, ')'
+  'JOIN tmp_eligible_base eb ON eb.`id` = base.`id` ',
+  'LEFT JOIN `items` idc ON idc.`id` = base.`id` + ', @EnlightenedOffset, ' ',
+  'LEFT JOIN `items` namec ON namec.`Name` = CONCAT(base.`Name`, ''', @EnlightenedNameSuffix, ''') ',
+  'WHERE ', @DryRun, ' = 0 ',
+  'AND base.`id` + ', @EnlightenedOffset, ' <= ', @ItemIdMax, ' ',
+  'AND idc.`id` IS NULL ',
+  'AND namec.`id` IS NULL'
 );
 
 PREPARE stmt_enlightened FROM @enlightened_sql;
 EXECUTE stmt_enlightened;
+SET @enlightened_inserted := ROW_COUNT();
 DEALLOCATE PREPARE stmt_enlightened;
 
--- =========================
--- Transcendent tier
--- =========================
+-- -------------------------
+-- Insert Transcendent tier
+-- -------------------------
 SELECT GROUP_CONCAT(
   CASE c.column_name
-    WHEN 'id'        THEN CONCAT(@TranscendentItemID, ' AS `id`')
+    WHEN 'id'        THEN CONCAT('base.`id` + ', @TranscendentOffset, ' AS `id`')
     WHEN 'Name'      THEN CONCAT('CONCAT(base.`Name`, ''', @TranscendentNameSuffix, ''') AS `Name`')
 
     -- Main stats doubled
@@ -223,37 +369,68 @@ SET @transcendent_sql = CONCAT(
   'INSERT INTO `items` (', @insert_cols, ') ',
   'SELECT ', @transcendent_select, ' ',
   'FROM `items` base ',
-  'WHERE base.`id` = ', @BaseItemID, ' ',
-  'AND NOT EXISTS (SELECT 1 FROM `items` i WHERE i.`id` = ', @TranscendentItemID, ')'
+  'JOIN tmp_eligible_base eb ON eb.`id` = base.`id` ',
+  'LEFT JOIN `items` idc ON idc.`id` = base.`id` + ', @TranscendentOffset, ' ',
+  'LEFT JOIN `items` namec ON namec.`Name` = CONCAT(base.`Name`, ''', @TranscendentNameSuffix, ''') ',
+  'WHERE ', @DryRun, ' = 0 ',
+  'AND base.`id` + ', @TranscendentOffset, ' <= ', @ItemIdMax, ' ',
+  'AND idc.`id` IS NULL ',
+  'AND namec.`id` IS NULL'
 );
 
 PREPARE stmt_transcendent FROM @transcendent_sql;
 EXECUTE stmt_transcendent;
+SET @transcendent_inserted := ROW_COUNT();
 DEALLOCATE PREPARE stmt_transcendent;
 
--- =========================
--- Validation query (base vs tiers)
--- =========================
+-- -------------------------
+-- Post-insert validation
+-- -------------------------
+SET @after_total_items := (SELECT COUNT(*) FROM items);
+SET @rows_inserted_total := @after_total_items - @before_total_items;
+
 SELECT
-  i.id,
-  i.`Name` AS item_name,
-  i.ac, i.hp, i.mana,
-  i.astr AS str_stat,
-  i.asta AS sta_stat,
-  i.aagi AS agi_stat,
-  i.adex AS dex_stat,
-  i.awis AS wis_stat,
-  i.aint AS int_stat,
-  i.acha AS cha_stat,
-  i.mr, i.fr, i.cr, i.dr, i.pr,
-  i.heroic_str, i.heroic_sta, i.heroic_agi, i.heroic_dex, i.heroic_wis, i.heroic_int, i.heroic_cha,
-  i.heroic_mr, i.heroic_fr, i.heroic_cr, i.heroic_dr, i.heroic_pr,
-  i.attack, i.accuracy, i.spelldmg, i.healamt,
-  i.loregroup,
-  i.nodrop,
-  i.classes,
-  i.races,
-  i.procrate
-FROM items i
-WHERE i.id IN (@BaseItemID, @NormalItemID, @EnlightenedItemID, @TranscendentItemID)
-ORDER BY FIELD(i.id, @BaseItemID, @NormalItemID, @EnlightenedItemID, @TranscendentItemID);
+  @DryRun AS dry_run_mode,
+  @before_total_items AS before_total_items,
+  @after_total_items AS after_total_items,
+  @rows_inserted_total AS rows_inserted_total,
+  @normal_inserted AS normal_rows_inserted,
+  @enlightened_inserted AS enlightened_rows_inserted,
+  @transcendent_inserted AS transcendent_rows_inserted;
+
+SELECT
+  @total_base_items AS total_base_items,
+  @eligible_base_items AS eligible_base_items,
+  (SELECT COUNT(*) FROM tmp_eligible_base eb JOIN items i ON i.id = eb.id + @NormalOffset) AS normal_generated_count,
+  (SELECT COUNT(*) FROM tmp_eligible_base eb JOIN items i ON i.id = eb.id + @EnlightenedOffset) AS enlightened_generated_count,
+  (SELECT COUNT(*) FROM tmp_eligible_base eb JOIN items i ON i.id = eb.id + @TranscendentOffset) AS transcendent_generated_count,
+  @collision_count AS collision_count;
+
+SELECT
+  eb.id AS base_id,
+  b.`Name` AS base_name,
+  n.id AS normal_id,
+  n.`Name` AS normal_name,
+  e.id AS enlightened_id,
+  e.`Name` AS enlightened_name,
+  t.id AS transcendent_id,
+  t.`Name` AS transcendent_name,
+  b.ac AS base_ac,
+  n.ac AS normal_ac,
+  e.ac AS enlightened_ac,
+  t.ac AS transcendent_ac,
+  b.hp AS base_hp,
+  n.hp AS normal_hp,
+  e.hp AS enlightened_hp,
+  t.hp AS transcendent_hp,
+  b.heroic_str AS base_heroic_str,
+  n.heroic_str AS normal_heroic_str,
+  e.heroic_str AS enlightened_heroic_str,
+  t.heroic_str AS transcendent_heroic_str
+FROM tmp_eligible_base eb
+JOIN items b ON b.id = eb.id
+LEFT JOIN items n ON n.id = eb.id + @NormalOffset
+LEFT JOIN items e ON e.id = eb.id + @EnlightenedOffset
+LEFT JOIN items t ON t.id = eb.id + @TranscendentOffset
+ORDER BY eb.id
+LIMIT 25;
