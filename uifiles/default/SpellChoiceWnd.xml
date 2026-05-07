@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<XML ID="SpellChoiceWnd_XML">
+  <Screen item="SpellChoiceWnd">
+    <ScreenID>SpellChoiceWnd</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>180</X>
+      <Y>120</Y>
+    </Location>
+    <Size>
+      <CX>640</CX>
+      <CY>420</CY>
+    </Size>
+    <Text>Spell Choice</Text>
+    <Style_Titlebar>true</Style_Titlebar>
+    <Style_Closebox>true</Style_Closebox>
+    <Style_Sizable>false</Style_Sizable>
+    <Style_Minimizable>false</Style_Minimizable>
+    <Style_Border>true</Style_Border>
+    <DrawTemplate>WDT_Inner</DrawTemplate>
+
+    <Label item="SC_Title">
+      <ScreenID>SC_Title</ScreenID>
+      <RelativePosition>true</RelativePosition>
+      <Location>
+        <X>18</X>
+        <Y>14</Y>
+      </Location>
+      <Size>
+        <CX>600</CX>
+        <CY>24</CY>
+      </Size>
+      <NoWrap>true</NoWrap>
+      <Text>Level Spell Choice</Text>
+      <TextColor>
+        <R>255</R>
+        <G>230</G>
+        <B>120</B>
+      </TextColor>
+      <Font>3</Font>
+      <AlignCenter>true</AlignCenter>
+    </Label>
+
+    <Label item="SC_Subtitle">
+      <ScreenID>SC_Subtitle</ScreenID>
+      <RelativePosition>true</RelativePosition>
+      <Location>
+        <X>18</X>
+        <Y>44</Y>
+      </Location>
+      <Size>
+        <CX>600</CX>
+        <CY>36</CY>
+      </Size>
+      <NoWrap>false</NoWrap>
+      <Text>Select one spell. Your selection is permanent for this level.</Text>
+      <TextColor>
+        <R>190</R>
+        <G>210</G>
+        <B>255</B>
+      </TextColor>
+      <Font>1</Font>
+      <AlignCenter>true</AlignCenter>
+    </Label>
+
+    <Label item="SC_Name_1">
+      <ScreenID>SC_Name_1</ScreenID>
+      <RelativePosition>true</RelativePosition>
+      <Location><X>26</X><Y>102</Y></Location>
+      <Size><CX>588</CX><CY>22</CY></Size>
+      <NoWrap>true</NoWrap>
+      <Text>Choice 1</Text>
+      <Font>2</Font>
+      <AlignCenter>true</AlignCenter>
+    </Label>
+
+    <Label item="SC_Desc_1">
+      <ScreenID>SC_Desc_1</ScreenID>
+      <RelativePosition>true</RelativePosition>
+      <Location><X>26</X><Y>126</Y></Location>
+      <Size><CX>588</CX><CY>34</CY></Size>
+      <NoWrap>false</NoWrap>
+      <Text>Description 1</Text>
+      <Font>1</Font>
+      <AlignCenter>true</AlignCenter>
+    </Label>
+
+    <Button item="SC_Button_1">
+      <ScreenID>10</ScreenID>
+      <RelativePosition>true</RelativePosition>
+      <Location><X>245</X><Y>162</Y></Location>
+      <Size><CX>150</CX><CY>28</CY></Size>
+      <Text>Choose Spell 1</Text>
+      <Style_Button>true</Style_Button>
+    </Button>
+
+    <Label item="SC_Name_2">
+      <ScreenID>SC_Name_2</ScreenID>
+      <RelativePosition>true</RelativePosition>
+      <Location><X>26</X><Y>208</Y></Location>
+      <Size><CX>588</CX><CY>22</CY></Size>
+      <NoWrap>true</NoWrap>
+      <Text>Choice 2</Text>
+      <Font>2</Font>
+      <AlignCenter>true</AlignCenter>
+    </Label>
+
+    <Label item="SC_Desc_2">
+      <ScreenID>SC_Desc_2</ScreenID>
+      <RelativePosition>true</RelativePosition>
+      <Location><X>26</X><Y>232</Y></Location>
+      <Size><CX>588</CX><CY>34</CY></Size>
+      <NoWrap>false</NoWrap>
+      <Text>Description 2</Text>
+      <Font>1</Font>
+      <AlignCenter>true</AlignCenter>
+    </Label>
+
+    <Button item="SC_Button_2">
+      <ScreenID>11</ScreenID>
+      <RelativePosition>true</RelativePosition>
+      <Location><X>245</X><Y>268</Y></Location>
+      <Size><CX>150</CX><CY>28</CY></Size>
+      <Text>Choose Spell 2</Text>
+      <Style_Button>true</Style_Button>
+    </Button>
+
+    <Label item="SC_Name_3">
+      <ScreenID>SC_Name_3</ScreenID>
+      <RelativePosition>true</RelativePosition>
+      <Location><X>26</X><Y>314</Y></Location>
+      <Size><CX>588</CX><CY>22</CY></Size>
+      <NoWrap>true</NoWrap>
+      <Text>Choice 3</Text>
+      <Font>2</Font>
+      <AlignCenter>true</AlignCenter>
+    </Label>
+
+    <Label item="SC_Desc_3">
+      <ScreenID>SC_Desc_3</ScreenID>
+      <RelativePosition>true</RelativePosition>
+      <Location><X>26</X><Y>338</Y></Location>
+      <Size><CX>588</CX><CY>34</CY></Size>
+      <NoWrap>false</NoWrap>
+      <Text>Description 3</Text>
+      <Font>1</Font>
+      <AlignCenter>true</AlignCenter>
+    </Label>
+
+    <Button item="SC_Button_3">
+      <ScreenID>12</ScreenID>
+      <RelativePosition>true</RelativePosition>
+      <Location><X>245</X><Y>374</Y></Location>
+      <Size><CX>150</CX><CY>28</CY></Size>
+      <Text>Choose Spell 3</Text>
+      <Style_Button>true</Style_Button>
+    </Button>
+  </Screen>
+</XML>

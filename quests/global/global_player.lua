@@ -257,10 +257,6 @@ function event_combine_success(e)
 end
 
 function event_command(e)
-	if e.command == 'spellchoice' then
-		return command_spellchoice(e)
-	end
-
 	return eq.DispatchCommands(e);
 end
 
@@ -569,18 +565,90 @@ local function sc_generate_pending(client, level)
   }, nil
 end
 
+local function sc_try_show_custom_window(client, level, pending, spell_rows)
+  local payload = {
+    window_id = "SpellChoiceWnd",
+    title = string.format("Level %d Spell Choice", level),
+    level = tostring(level),
+    nonce = pending.nonce,
+    spell_1_id = tostring(pending.spell_ids[1] or 0),
+    spell_2_id = tostring(pending.spell_ids[2] or 0),
+    spell_3_id = tostring(pending.spell_ids[3] or 0),
+    spell_1_name = spell_rows[1] and spell_rows[1].name or "Unknown Spell",
+    spell_2_name = spell_rows[2] and spell_rows[2].name or "Unknown Spell",
+    spell_3_name = spell_rows[3] and spell_rows[3].name or "Unknown Spell",
+    spell_1_desc = spell_rows[1] and string.format("Spell ID %d", spell_rows[1].id) or "Unavailable",
+    spell_2_desc = spell_rows[2] and string.format("Spell ID %d", spell_rows[2].id) or "Unavailable",
+    spell_3_desc = spell_rows[3] and string.format("Spell ID %d", spell_rows[3].id) or "Unavailable",
+    button_1_id = "10",
+    button_2_id = "11",
+    button_3_id = "12",
+  }
+
+  local attempts = {
+    function()
+      if eq and type(eq.custom_window) == "function" then
+        eq.custom_window(client, payload)
+        return true
+      end
+      return false
+    end,
+    function()
+      if client and type(client.CustomWindow) == "function" then
+        client:CustomWindow(payload)
+        return true
+      end
+      return false
+    end,
+    function()
+      if client and type(client.OpenCustomWindow) == "function" then
+        client:OpenCustomWindow(payload)
+        return true
+      end
+      return false
+    end,
+  }
+
+  for _, attempt in ipairs(attempts) do
+    local ok, used = pcall(attempt)
+    if ok and used then
+      return true
+    end
+  end
+
+  return false
+end
+
 local function sc_show_pending(client, level, pending)
-  client:Message(MT.Yellow, string.format("Level %d spell choice: pick one of these three spells.", level))
+  local choices = {}
+  local popup_lines = {}
+  local spell_rows = {}
 
   for i, spell_id in ipairs(pending.spell_ids) do
     local spell = sc_find_spell(spell_id)
+    spell_rows[i] = spell
     local spell_name = spell and spell.name or string.format("Spell %d", spell_id)
-    local command = string.format("#spellchoice pick %d %s %d", level, pending.nonce, spell_id)
-    local link = eq.say_link(command, false, string.format("[%d] %s", i, spell_name))
-    client:Message(MT.Lime, string.format("%s - Spell ID %d", link, spell_id))
+    local link = eq.say_link(string.format("spellchoice %d", i), false, string.format("[%d] %s", i, spell_name))
+    table.insert(choices, link)
+    table.insert(popup_lines, string.format("  Choice %d: %s  (say spellchoice %d)", i, spell_name, i))
+  end
+
+  if sc_try_show_custom_window(client, level, pending, spell_rows) then
+    return
+  end
+
+  local popup_text = string.format(
+    [[<c "#F0F000">Level %d Spell Choice</c><br><br>Say one of the following to choose your spell:<br><br>%s]],
+    level,
+    table.concat(popup_lines, "<br>")
+  )
+  eq.popup("Spell Choice", popup_text)
+
+  client:Message(MT.Yellow, string.format("Level %d spell choice:", level))
+  for _, link in ipairs(choices) do
+    client:Message(MT.Lime, link)
   end
 end
-
 local function sc_scribe_spell(client, spell_id)
   local slot = client:GetNextAvailableSpellBookSlot()
   if not slot or slot < 0 then
@@ -600,7 +668,7 @@ end
 
 local function sc_claim_choice(client, level, nonce, selected_spell_id)
   if not sc_is_num(level) or not sc_is_num(selected_spell_id) or not sc_nonce_valid(nonce) then
-    client:Message(MT.Red, "Usage: #spellchoice pick <level> <nonce> <spell_id>")
+    client:Message(MT.Red, "Invalid spell choice request.")
     return
   end
 
@@ -664,27 +732,36 @@ local function sc_claim_choice(client, level, nonce, selected_spell_id)
   client:Message(MT.Green, string.format("Spell choice locked in: %s (%d)", spell_name, selected_spell_id))
 end
 
-function command_spellchoice(e)
-  local client = e.self
-  local args = e.args or {}
-  local sub = string.lower(args[1] or "show")
-
-  if sub == "pick" then
-    sc_claim_choice(client, args[2], args[3], args[4])
+local function sc_claim_by_index(client, choice_num)
+  choice_num = sc_to_int(choice_num)
+  if choice_num < 1 or choice_num > 3 then
+    client:Message(MT.Red, "Say 'spellchoice 1', 'spellchoice 2', or 'spellchoice 3' to pick a spell.")
     return
   end
 
-  if sub ~= "show" and sub ~= "help" then
-    client:Message(MT.Red, "Usage: #spellchoice [show] OR #spellchoice pick <level> <nonce> <spell_id>")
+  local character_id = client:CharacterID()
+  local level, pending = sc_find_latest_pending(character_id, client:GetLevel())
+  if not pending then
+    client:Message(MT.Yellow, "No unclaimed spell choice is available.")
     return
   end
 
-  local level, pending = sc_find_latest_pending(client:CharacterID(), client:GetLevel())
+  local selected_spell_id = pending.spell_ids[choice_num]
+  if not selected_spell_id then
+    client:Message(MT.Red, "Invalid choice.")
+    return
+  end
+
+  sc_claim_choice(client, level, pending.nonce, selected_spell_id)
+end
+
+local function sc_show_or_generate(client)
+  local character_id = client:CharacterID()
+  local level, pending = sc_find_latest_pending(character_id, client:GetLevel())
   if not pending then
     level = client:GetLevel()
-    pending = sc_generate_pending(client, level)
+    pending, _ = sc_generate_pending(client, level)
   end
-
   if pending and level then
     sc_show_pending(client, level, pending)
   else
@@ -692,9 +769,40 @@ function command_spellchoice(e)
   end
 end
 
+function event_say(e)
+  local msg = string.lower(string.gsub(e.message or "", "^%s+", ""))
+  local num = msg:match("^spellchoice%s+(%d+)$")
+  if num then
+    sc_claim_by_index(e.self, tonumber(num))
+    return
+  end
+  if msg == "spellchoice" then
+    sc_show_or_generate(e.self)
+  end
+end
+
+function event_custom_action(e)
+  local btn = tonumber(e.customid or 0)
+  local idx = nil
+
+  if btn == 10 then
+    idx = 1
+  elseif btn == 11 then
+    idx = 2
+  elseif btn == 12 then
+    idx = 3
+  else
+    return
+  end
+
+  sc_claim_by_index(e.self, idx)
+end
+
 function spellchoice_on_level_up(e)
   local client = e.self
   local level = client:GetLevel()
+
+  e.self:Message(15, "[SpellChoice Debug] level-up hook fired")
 
   if level < 1 then
     return
@@ -706,7 +814,7 @@ function spellchoice_on_level_up(e)
 
   local pending, err = sc_generate_pending(client, level)
   if pending then
-    client:Message(MT.Yellow, "You have earned a spell choice. Type #spellchoice to choose.")
+    sc_show_pending(client, level, pending)
   elseif err == "not_enough_candidates" then
     client:Message(MT.Red, "Spell choice generation failed: not enough valid spells were available.")
   end

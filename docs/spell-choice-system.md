@@ -1,41 +1,58 @@
-# Spell Choice On Level Up
+# Spell Choice System
 
-## Overview
-This system gives each character one server-authoritative spell choice at each level:
-- On level up, the server creates one pending row with three spell options.
-- Player claims exactly one option.
-- Server validates pending row, nonce, offered spell set, expiration, and replay state.
-- Claimed result is persisted to history.
+## Status Split
 
-## Data Model
-Patch file: sql/patches/002_spell_choice_on_level_up.sql
-- spell_choices_pending: active and unclaimed offers.
-- spell_choices_history: immutable claim record, one per character per level.
-- spell_choices_blacklist: excluded spells.
+### Backend: Working Now
+- Static pool source remains at quests/lua_modules/spell_choice_pool.lua.
+- Pending and claimed state is persisted in data buckets.
+- Server-side validation remains authoritative:
+  - pending set exists for character and level
+  - nonce must match
+  - selected spell must be in offered 3
+  - spell must remain valid and not already scribed
+  - one claim per character per level
+- No runtime SQL is used by the Lua backend.
 
-## Security Model
-Validation happens server-side in Lua:
-- pending_id must exist for the character.
-- nonce must match row value.
-- selected_spell_id must match one of row columns spell_id_1..3.
-- Pending row must not be expired and must be unclaimed.
-- Claim must not already exist for character + level.
-- Spell must not already be scribed.
+### Native Fallback: Working But Not Final
+- Current fallback path is still enabled intentionally:
+  - eq.popup for visibility
+  - chat saylinks for spellchoice 1/2/3 claim actions
+- This remains the reliability path if custom UI is unavailable.
 
-## Operational Constraints
-- Do not auto-run SQL from repo changes.
-- Do not deploy by copy/sync in this step.
-- Do not push until review is complete.
+### Custom UI Bridge: Required For Final 3-Button Experience
+- New client window XML is defined at uifiles/default/SpellChoiceWnd.xml.
+- Lua now attempts to open a custom window first and passes:
+  - window id
+  - level
+  - nonce
+  - spell ids
+  - spell names/descriptions
+  - button ids 10, 11, 12
+- If no supported custom window API exists at runtime, code falls back automatically to popup + saylinks.
 
-## Suggested Inspection Queries
-SELECT * FROM spell_choices_pending WHERE character_id = ? ORDER BY id DESC;
-SELECT * FROM spell_choices_history WHERE character_id = ? ORDER BY id DESC;
-SELECT * FROM spell_choices_blacklist ORDER BY spell_id;
+## Current Server Capability Check
+- This server codebase exports EVENT_LEVEL_UP and EVENT_POPUP_RESPONSE.
+- No EVENT_CUSTOM_ACTION export was found in this build.
+- No OP_CustomWindow/OP_CustomAction symbols were found in the current source snapshot.
+- Result: true packet-driven custom-window click callbacks are build-dependent and may require core support not present in this runtime.
 
-## GM Test Flow
-1. Level a test character.
-2. Verify pending row appears for that level.
-3. Use generated command link or #spellchoice to view choices.
-4. Pick one choice.
-5. Confirm: spell is scribed, pending row claimed_at is set, history row is present.
-6. Attempt replay and confirm it is rejected.
+## Implementation Notes
+- Lua bridge function added:
+  - sc_try_show_custom_window(client, level, pending, spell_rows)
+- Existing fallback function retained:
+  - sc_show_pending still sends popup + saylinks when custom path fails
+- Button mapping contract for custom UI:
+  - button id 10 => choice 1
+  - button id 11 => choice 2
+  - button id 12 => choice 3
+- Lua event handler added:
+  - event_custom_action(e) maps customid 10/11/12 to sc_claim_by_index
+
+## Deployment Notes
+- Place SpellChoiceWnd.xml in the EQ client UI path:
+  - <EQ Client>\\uifiles\\default\\SpellChoiceWnd.xml
+- If using a custom skin folder, copy into that skin as well if it overrides default windows.
+- Quest script still requires standard deployment/restart flow.
+
+## Risk and Fallback
+- If custom-window send/callback methods are unsupported by this server build or client executable, users still get the spell choice via popup + saylink path with full server validation.
