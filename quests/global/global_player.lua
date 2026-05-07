@@ -1,6 +1,7 @@
 -- items: 67704, 72091, 62621, 62622, 62844, 62827, 62828, 62836, 62883, 62876, 47100, 62878, 62879
 
 local don = require("dragons_of_norrath")
+local spell_choice_pool = require("spell_choice_pool")
 
 function event_enter_zone(e)
 	mysterious_voice(e)
@@ -404,31 +405,17 @@ function event_level_up(e)
   spellchoice_on_level_up(e)
 end
 
-local SPELL_CHOICE_PENDING_HOURS = 24
-local SPELL_CHOICE_CLASS_COLUMNS = {
-  "classes1", "classes2", "classes3", "classes4", "classes5", "classes6", "classes7", "classes8",
-  "classes9", "classes10", "classes11", "classes12", "classes13", "classes14", "classes15", "classes16"
-}
+local SPELL_CHOICE_PENDING_PREFIX = "spellchoice:pending"
+local SPELL_CHOICE_CLAIMED_PREFIX = "spellchoice:claimed"
+local SPELL_CHOICE_RANGE = 5
 
-local function sc_rows(result)
-  if not result then
-    return {}
+-- Data buckets persist one pending choice set and one claimed marker per character and level.
+local spell_choice_pool_index = {}
+
+for _, spells in pairs(spell_choice_pool) do
+  for _, spell in ipairs(spells) do
+    spell_choice_pool_index[spell.id] = spell
   end
-
-  if type(result) == "table" and result.rows then
-    return result.rows
-  end
-
-  if type(result) == "table" then
-    return result
-  end
-
-  return {}
-end
-
-local function sc_first_row(result)
-  local rows = sc_rows(result)
-  return rows[1]
 end
 
 local function sc_is_num(value)
@@ -443,103 +430,108 @@ local function sc_nonce_valid(nonce)
   return type(nonce) == "string" and nonce:match("^[A-Za-z0-9]+$") ~= nil
 end
 
-local function sc_generate_nonce()
-  return string.format("%08x%08x", os.time(), math.random(0, 2147483647))
+local function sc_generate_nonce(character_id, level)
+  return string.format("%x%x%x", os.time(), character_id or 0, level or 0)
 end
 
-local function sc_class_level_predicate(min_level, max_level)
-  local clauses = {}
+local function sc_pending_key(character_id, level)
+  return string.format("%s:%d:%d", SPELL_CHOICE_PENDING_PREFIX, character_id, level)
+end
 
-  for _, col in ipairs(SPELL_CHOICE_CLASS_COLUMNS) do
-    table.insert(clauses, string.format("(s.%s BETWEEN %d AND %d)", col, min_level, max_level))
+local function sc_claimed_key(character_id, level)
+  return string.format("%s:%d:%d", SPELL_CHOICE_CLAIMED_PREFIX, character_id, level)
+end
+
+local function sc_split(value)
+  local parts = {}
+
+  if not value or value == "" then
+    return parts
   end
 
-  return "(" .. table.concat(clauses, " OR ") .. ")"
+  for part in string.gmatch(value, "([^|]+)") do
+    table.insert(parts, part)
+  end
+
+  return parts
+end
+
+local function sc_parse_pending(value)
+  local parts = sc_split(value)
+  if #parts ~= 4 then
+    return nil
+  end
+
+  local spell_1 = sc_to_int(parts[1])
+  local spell_2 = sc_to_int(parts[2])
+  local spell_3 = sc_to_int(parts[3])
+  local nonce = parts[4]
+
+  if spell_1 <= 0 or spell_2 <= 0 or spell_3 <= 0 or not sc_nonce_valid(nonce) then
+    return nil
+  end
+
+  return {
+    spell_ids = { spell_1, spell_2, spell_3 },
+    nonce = nonce,
+  }
+end
+
+local function sc_find_spell(spell_id)
+  return spell_choice_pool_index[spell_id]
+end
+
+local function sc_spell_is_valid(spell_id, player_level)
+  local spell = sc_find_spell(spell_id)
+  return spell ~= nil and spell.min_level <= player_level
 end
 
 local function sc_claimed_for_level(character_id, level)
-  local sql = string.format(
-    "SELECT selected_spell_id FROM spell_choices_history WHERE character_id = %d AND level = %d LIMIT 1",
-    character_id,
-    level
-  )
-
-  return sc_first_row(eq.query_database(sql)) ~= nil
+  local claimed = eq.get_data(sc_claimed_key(character_id, level))
+  return claimed ~= nil and claimed ~= ""
 end
 
-local function sc_fetch_pending(character_id, level)
-  local sql = string.format(
-    "SELECT id, character_id, level, spell_id_1, spell_id_2, spell_id_3, nonce " ..
-      "FROM spell_choices_pending " ..
-      "WHERE character_id = %d AND level = %d AND claimed_at IS NULL AND expires_at > NOW() " ..
-      "ORDER BY id DESC LIMIT 1",
-    character_id,
-    level
-  )
-
-  return sc_first_row(eq.query_database(sql))
+local function sc_get_pending_for_level(character_id, level)
+  return sc_parse_pending(eq.get_data(sc_pending_key(character_id, level)))
 end
 
-local function sc_fetch_pending_by_id(character_id, pending_id)
-  local sql = string.format(
-    "SELECT id, character_id, level, spell_id_1, spell_id_2, spell_id_3, nonce " ..
-      "FROM spell_choices_pending " ..
-      "WHERE id = %d AND character_id = %d AND claimed_at IS NULL AND expires_at > NOW() " ..
-      "LIMIT 1",
-    pending_id,
-    character_id
-  )
-
-  return sc_first_row(eq.query_database(sql))
-end
-
-local function sc_spell_name(spell_id)
-  local sql = string.format("SELECT name FROM spells_new WHERE id = %d LIMIT 1", spell_id)
-  local row = sc_first_row(eq.query_database(sql))
-
-  if row and row.name and row.name ~= "" then
-    return row.name
-  end
-
-  return string.format("Spell %d", spell_id)
-end
-
-local function sc_candidate_spell_ids(client, min_level, max_level)
-  local class_predicate = sc_class_level_predicate(min_level, max_level)
-  local sql =
-    "SELECT s.id AS spell_id " ..
-    "FROM spells_new s " ..
-    "LEFT JOIN spell_choices_blacklist b ON b.spell_id = s.id " ..
-    "WHERE b.spell_id IS NULL " ..
-    "AND s.id > 0 " ..
-    "AND s.name IS NOT NULL " ..
-    "AND TRIM(s.name) <> '' " ..
-    "AND s.name NOT LIKE '%Unknown%' " ..
-    "AND s.name NOT LIKE '%Placeholder%' " ..
-    "AND s.name NOT LIKE '%Test%' " ..
-    "AND s.name NOT LIKE '%GM%' " ..
-    "AND s.name NOT LIKE '%Admin%' " ..
-    "AND " .. class_predicate .. " " ..
-    "ORDER BY RAND() LIMIT 300"
-
-  local rows = sc_rows(eq.query_database(sql))
-  local out = {}
-  local seen = {}
-
-  for _, row in ipairs(rows) do
-    local spell_id = sc_to_int(row.spell_id)
-
-    if spell_id > 0 and not seen[spell_id] and not client:HasSpellScribed(spell_id) then
-      seen[spell_id] = true
-      table.insert(out, spell_id)
-
-      if #out >= 3 then
-        break
+local function sc_find_latest_pending(character_id, max_level)
+  for level = max_level, 1, -1 do
+    if not sc_claimed_for_level(character_id, level) then
+      local pending = sc_get_pending_for_level(character_id, level)
+      if pending then
+        return level, pending
       end
     end
   end
 
-  return out
+  return nil, nil
+end
+
+local function sc_shuffle(list)
+  for i = #list, 2, -1 do
+    local j = math.random(i)
+    list[i], list[j] = list[j], list[i]
+  end
+end
+
+local function sc_collect_candidates(client, min_level, max_level)
+  local candidates = {}
+  local seen = {}
+
+  for level = math.max(1, min_level), math.max(1, max_level) do
+    local spells = spell_choice_pool[level]
+    if spells then
+      for _, spell in ipairs(spells) do
+        if not seen[spell.id] and not client:HasSpellScribed(spell.id) and sc_spell_is_valid(spell.id, client:GetLevel()) then
+          seen[spell.id] = true
+          table.insert(candidates, spell)
+        end
+      end
+    end
+  end
+
+  return candidates
 end
 
 local function sc_generate_pending(client, level)
@@ -549,79 +541,44 @@ local function sc_generate_pending(client, level)
     return nil, "already_claimed"
   end
 
-  local pending = sc_fetch_pending(character_id, level)
-  if pending then
-    return pending, nil
+  local existing = sc_get_pending_for_level(character_id, level)
+  if existing then
+    return existing, nil
   end
 
-  local preferred_low = math.max(1, level - 5)
-  local selected = sc_candidate_spell_ids(client, preferred_low, level)
-
-  if #selected < 3 then
-    local expanded = sc_candidate_spell_ids(client, 1, level)
-    local seen = {}
-    for _, spell_id in ipairs(selected) do
-      seen[spell_id] = true
-    end
-
-    for _, spell_id in ipairs(expanded) do
-      if not seen[spell_id] then
-        table.insert(selected, spell_id)
-        seen[spell_id] = true
-      end
-      if #selected >= 3 then
-        break
-      end
-    end
+  local candidates = sc_collect_candidates(client, level - SPELL_CHOICE_RANGE, level)
+  if #candidates < 3 then
+    candidates = sc_collect_candidates(client, 1, level)
   end
 
-  if #selected < 3 then
+  if #candidates < 3 then
     return nil, "not_enough_candidates"
   end
 
-  eq.query_database(string.format(
-    "UPDATE spell_choices_pending SET expires_at = NOW() WHERE character_id = %d AND level = %d AND claimed_at IS NULL",
-    character_id,
-    level
-  ))
+  sc_shuffle(candidates)
 
-  local nonce = sc_generate_nonce()
-  local insert_sql = string.format(
-    "INSERT INTO spell_choices_pending " ..
-      "(character_id, level, spell_id_1, spell_id_2, spell_id_3, created_at, expires_at, nonce) " ..
-      "VALUES (%d, %d, %d, %d, %d, NOW(), DATE_ADD(NOW(), INTERVAL %d HOUR), '%s')",
-    character_id,
-    level,
-    selected[1],
-    selected[2],
-    selected[3],
-    SPELL_CHOICE_PENDING_HOURS,
-    nonce
-  )
+  local selected = { candidates[1].id, candidates[2].id, candidates[3].id }
+  local nonce = sc_generate_nonce(character_id, level)
+  local value = string.format("%d|%d|%d|%s", selected[1], selected[2], selected[3], nonce)
 
-  eq.query_database(insert_sql)
-  return sc_fetch_pending(character_id, level), nil
+  eq.set_data(sc_pending_key(character_id, level), value)
+
+  return {
+    spell_ids = selected,
+    nonce = nonce,
+  }, nil
 end
 
-local function sc_show_pending(client, pending)
-  local pending_id = sc_to_int(pending.id)
-  local nonce = tostring(pending.nonce)
-  local spell_ids = {
-    sc_to_int(pending.spell_id_1),
-    sc_to_int(pending.spell_id_2),
-    sc_to_int(pending.spell_id_3)
-  }
+local function sc_show_pending(client, level, pending)
+  client:Message(MT.Yellow, string.format("Level %d spell choice: pick one of these three spells.", level))
 
-  client:Message(MT.Yellow, string.format("Level %d spell choice: pick one of these three spells.", sc_to_int(pending.level)))
-
-  for i, spell_id in ipairs(spell_ids) do
-    local spell_name = sc_spell_name(spell_id)
-    local command = string.format("#spellchoice pick %d %s %d", pending_id, nonce, spell_id)
+  for i, spell_id in ipairs(pending.spell_ids) do
+    local spell = sc_find_spell(spell_id)
+    local spell_name = spell and spell.name or string.format("Spell %d", spell_id)
+    local command = string.format("#spellchoice pick %d %s %d", level, pending.nonce, spell_id)
     local link = eq.say_link(command, false, string.format("[%d] %s", i, spell_name))
     client:Message(MT.Lime, string.format("%s - Spell ID %d", link, spell_id))
   end
-
-  client:Message(MT.White, "If the popup is missed, use #spellchoice to show your pending choices again.")
 end
 
 local function sc_scribe_spell(client, spell_id)
@@ -641,42 +598,34 @@ local function sc_scribe_spell(client, spell_id)
   return true, nil
 end
 
-local function sc_claim_choice(client, pending_id, nonce, selected_spell_id)
-  if not sc_is_num(pending_id) or not sc_is_num(selected_spell_id) or not sc_nonce_valid(nonce) then
-    client:Message(MT.Red, "Usage: #spellchoice pick <pending_id> <nonce> <spell_id>")
+local function sc_claim_choice(client, level, nonce, selected_spell_id)
+  if not sc_is_num(level) or not sc_is_num(selected_spell_id) or not sc_nonce_valid(nonce) then
+    client:Message(MT.Red, "Usage: #spellchoice pick <level> <nonce> <spell_id>")
     return
   end
 
-  pending_id = sc_to_int(pending_id)
+  level = sc_to_int(level)
   selected_spell_id = sc_to_int(selected_spell_id)
 
   local character_id = client:CharacterID()
-  local pending = sc_fetch_pending_by_id(character_id, pending_id)
-
-  if not pending then
-    client:Message(MT.Red, "No active pending spell choice found for that request.")
+  if sc_claimed_for_level(character_id, level) then
+    client:Message(MT.Red, "No unclaimed spell choice is available for that level.")
     return
   end
 
-  if tostring(pending.nonce) ~= nonce then
+  local pending = sc_get_pending_for_level(character_id, level)
+  if not pending then
+    client:Message(MT.Red, "No active pending spell choice found for that level.")
+    return
+  end
+
+  if pending.nonce ~= nonce then
     client:Message(MT.Red, "Spell choice nonce mismatch.")
     return
   end
 
-  local level = sc_to_int(pending.level)
-  if sc_claimed_for_level(character_id, level) then
-    client:Message(MT.Red, "A spell has already been claimed for that level.")
-    return
-  end
-
-  local valid_ids = {
-    sc_to_int(pending.spell_id_1),
-    sc_to_int(pending.spell_id_2),
-    sc_to_int(pending.spell_id_3)
-  }
-
   local valid_selection = false
-  for _, spell_id in ipairs(valid_ids) do
+  for _, spell_id in ipairs(pending.spell_ids) do
     if spell_id == selected_spell_id then
       valid_selection = true
       break
@@ -685,6 +634,11 @@ local function sc_claim_choice(client, pending_id, nonce, selected_spell_id)
 
   if not valid_selection then
     client:Message(MT.Red, "That spell is not one of your offered choices.")
+    return
+  end
+
+  if not sc_spell_is_valid(selected_spell_id, client:GetLevel()) then
+    client:Message(MT.Red, "That spell is no longer a valid choice.")
     return
   end
 
@@ -702,23 +656,12 @@ local function sc_claim_choice(client, pending_id, nonce, selected_spell_id)
     return
   end
 
-  eq.query_database(string.format(
-    "INSERT INTO spell_choices_history (character_id, level, pending_id, selected_spell_id, claimed_at, nonce) " ..
-      "VALUES (%d, %d, %d, %d, NOW(), '%s')",
-    character_id,
-    level,
-    pending_id,
-    selected_spell_id,
-    nonce
-  ))
+  eq.set_data(sc_claimed_key(character_id, level), string.format("%d|%d", selected_spell_id, os.time()))
+  eq.delete_data(sc_pending_key(character_id, level))
 
-  eq.query_database(string.format(
-    "UPDATE spell_choices_pending SET claimed_at = NOW() WHERE id = %d AND character_id = %d AND claimed_at IS NULL",
-    pending_id,
-    character_id
-  ))
-
-  client:Message(MT.Green, string.format("Spell choice locked in: %s (%d)", sc_spell_name(selected_spell_id), selected_spell_id))
+  local spell = sc_find_spell(selected_spell_id)
+  local spell_name = spell and spell.name or string.format("Spell %d", selected_spell_id)
+  client:Message(MT.Green, string.format("Spell choice locked in: %s (%d)", spell_name, selected_spell_id))
 end
 
 function command_spellchoice(e)
@@ -732,21 +675,20 @@ function command_spellchoice(e)
   end
 
   if sub ~= "show" and sub ~= "help" then
-    client:Message(MT.Red, "Usage: #spellchoice [show] OR #spellchoice pick <pending_id> <nonce> <spell_id>")
+    client:Message(MT.Red, "Usage: #spellchoice [show] OR #spellchoice pick <level> <nonce> <spell_id>")
     return
   end
 
-  local level = client:GetLevel()
-  local pending = sc_fetch_pending(client:CharacterID(), level)
-
+  local level, pending = sc_find_latest_pending(client:CharacterID(), client:GetLevel())
   if not pending then
+    level = client:GetLevel()
     pending = sc_generate_pending(client, level)
   end
 
-  if pending then
-    sc_show_pending(client, pending)
+  if pending and level then
+    sc_show_pending(client, level, pending)
   else
-    client:Message(MT.Yellow, "No pending spell choice found at your current level.")
+    client:Message(MT.Yellow, "No unclaimed spell choice is available.")
   end
 end
 
@@ -758,12 +700,18 @@ function spellchoice_on_level_up(e)
     return
   end
 
-  local pending = sc_generate_pending(client, level)
+  if sc_claimed_for_level(client:CharacterID(), level) then
+    return
+  end
+
+  local pending, err = sc_generate_pending(client, level)
   if pending then
-    client:Message(MT.Yellow, "You unlocked a level-up spell choice.")
-    sc_show_pending(client, pending)
+    client:Message(MT.Yellow, "You have earned a spell choice. Type #spellchoice to choose.")
+  elseif err == "not_enough_candidates" then
+    client:Message(MT.Red, "Spell choice generation failed: not enough valid spells were available.")
   end
 end
+
 
 test_items = {
     [Class.WARRIOR]			= {38000, 38020}, -- Warrior
