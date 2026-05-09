@@ -62,3 +62,10 @@ cd ~/eqemu-server-overlay
 3. Copy `config/eqemu_config.example.json` → fill in real values → place at `~/akk-stack/server/eqemu_config.json`
 4. Run `./deploy/apply-overlay.sh`
 5. Restart: `cd ~/akk-stack && docker compose restart eqemu-server`
+
+## Causeway Rebalance Hardening Notes
+
+- Schema variance risk: EQEmu and PEQ forks may use different damage, AC, and avoidance column names. Run schema discovery first and adjust SQL explicitly.
+- Rollback safety: rollback uses UPDATE JOIN instead of REPLACE INTO to preserve row identity and avoid delete and reinsert side effects.
+- special_abilities sampling: Crushbone profile special abilities are sampled from first observed values and are approximate, not a true statistical mode.
+- NO_SOURCE exclusion: high-level NO_SOURCE NPCs are intentionally excluded from apply phases to avoid unsourced transformations.
