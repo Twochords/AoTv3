@@ -256,7 +256,6 @@ bool Client::SummonItem(uint32 item_id, int16 charges, uint32 aug1, uint32 aug2,
 	*/
 
 	uint32 augments[EQ::invaug::SOCKET_COUNT] = { aug1, aug2, aug3, aug4, aug5, aug6 };
-	uint32 classes = item->Classes;
 	uint32 races = item->Races;
 	uint32 slots = item->Slots;
 	bool enforce_wearable = RuleB(Inventory, EnforceAugmentWear);
@@ -449,34 +448,6 @@ bool Client::SummonItem(uint32 item_id, int16 charges, uint32 aug1, uint32 aug2,
 			}
 
 			if(enforce_usable) {
-				// check for class usability
-				if(item->Classes && !(classes &= augtest->Classes)) {
-					Message(
-						Chat::Red,
-						fmt::format(
-							"{} ({}) in Augment Slot {} will result in an item unusable by any class.",
-							database.CreateItemLink(augments[iter]),
-							augments[iter],
-							augment_slot
-						).c_str()
-					);
-					LogInventory(
-						"Player [{}] on account [{}] attempted to create an item unusable by any class.\n"
-						"Item [{}], Aug1: [{}], Aug2: [{}], Aug3: [{}], Aug4: [{}], Aug5: [{}], Aug6: [{}])\n",
-						GetName(),
-						account_name,
-						item->ID,
-						aug1,
-						aug2,
-						aug3,
-						aug4,
-						aug5,
-						aug6
-					);
-
-					return false;
-				}
-
 				// check for race usability
 				if(item->Races && !(races &= augtest->Races)) {
 					Message(

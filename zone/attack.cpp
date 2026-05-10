@@ -15,6 +15,7 @@
 	You should have received a copy of the GNU General Public License
 	along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
+#include <algorithm>
 #include "common/data_verification.h"
 #include "common/eq_constants.h"
 #include "common/eq_packet_structs.h"
@@ -128,7 +129,7 @@ EQ::skills::SkillType Mob::AttackAnimation(int Hand, const EQ::ItemInstance* wea
 		}
 	}
 
-	//If both weapons have same delay this allows a chance for DW animation
+	// If both weapons have same delay this allows a chance for DW animation
 	if (GetDualWieldingSameDelayWeapons() && Hand == EQ::invslot::slotPrimary) {
 
 		if (GetDualWieldingSameDelayWeapons() == 3 && zone->random.Roll(50)) {
@@ -145,19 +146,17 @@ EQ::skills::SkillType Mob::AttackAnimation(int Hand, const EQ::ItemInstance* wea
 //SYNC WITH: tune.cpp, mob.h Tunecompute_tohit
 int Mob::compute_tohit(EQ::skills::SkillType skillinuse)
 {
-	int tohit = GetSkill(EQ::skills::SkillOffense) + 7;
-	tohit += GetSkill(skillinuse);
+	const bool is_ranged = (skillinuse == EQ::skills::SkillArchery || skillinuse == EQ::skills::SkillThrowing);
+	// Accuracy = 5 * level + DEX (melee) or STR (ranged)
+	int tohit = 5 * static_cast<int>(GetLevel()) + (is_ranged ? GetSTR() : GetDEX());
 
 	if (IsNPC()) {
-		if (RuleB(Combat, UseMobStaticOffenseSkill)) {
-			tohit = GetMobFixedWeaponSkill() + GetMobFixedOffenseSkill() + 7;
-		}
 		tohit += CastToNPC()->GetAccuracyRating();
 	} else if (IsClient()) {
 		double reduction = CastToClient()->GetIntoxication() / 2.0;
 		if (reduction > 20.0) {
 			reduction = std::min((110 - reduction) / 100.0, 1.0);
-			tohit = reduction * static_cast<double>(tohit);
+			tohit = static_cast<int>(reduction * static_cast<double>(tohit));
 		} else if (IsBerserk()) {
 			tohit += (GetLevel() * 2) / 5;
 		}
@@ -245,40 +244,19 @@ int Mob::GetTotalToHit(EQ::skills::SkillType skill, int chance_mod)
 //SYNC WITH: tune.cpp, mob.h Tunecompute_defense
 int Mob::compute_defense()
 {
-	int defense = GetSkill(EQ::skills::SkillDefense) * 400 / 225;
+	// Avoidance = 5 * level + AGI
+	int defense = 5 * static_cast<int>(GetLevel()) + GetAGI();
 
-	// In new code, AGI becomes a large contributor to avoidance at low levels, since AGI isn't capped by Level but Defense is
-	// A scale factor is implemented for PCs to reduce the effect of AGI at low levels.  This isn't applied to NPCs since they can be
-	// easily controlled via the Database.
-	if (RuleB(Combat, LegacyComputeDefense)) {
-		int agi_scale_factor = 1000;
-
-		if (IsOfClientBot()) {
-			agi_scale_factor = std::min(1000, static_cast<int>(GetLevel()) * 1000 / 70); // Scales Agi Contribution for PC's Level, max Contribution at Level 70
-		}
-
-		defense += agi_scale_factor * (800 * (GetAGI() - 40)) / 3600 / 1000;
-
-		if (IsOfClientBot()) {
-			defense += GetHeroicAGI() / 10;
-		}
-
-		defense += itembonuses.AvoidMeleeChance * RuleI(Combat, PCAccuracyAvoidanceMod2Scale) / 100; // item mod2
-	} else {
-		defense += (8000 * (GetAGI() - 40)) / 36000;
-
-		if (IsOfClientBot()) {
-			defense += itembonuses.heroic_agi_avoidance;
-		}
-
-		defense += itembonuses.AvoidMeleeChance; // item mod2
+	// Heroic AGI and item mod2 avoidance layered on top
+	if (IsOfClientBot()) {
+		defense += itembonuses.heroic_agi_avoidance;
 	}
+	defense += itembonuses.AvoidMeleeChance;
 
-
-	//516 SpellEffect::AC_Mitigation_Max_Percent
+	// SPA 516 — percentage avoidance bonus
 	auto ac_bonus = itembonuses.AC_Mitigation_Max_Percent + aabonuses.AC_Mitigation_Max_Percent + spellbonuses.AC_Mitigation_Max_Percent;
 	if (ac_bonus) {
-		defense += round(static_cast<double>(defense) * static_cast<double>(ac_bonus) * 0.0001);
+		defense += static_cast<int>(round(static_cast<double>(defense) * static_cast<double>(ac_bonus) * 0.0001));
 	}
 
 	if (IsNPC()) {
@@ -289,7 +267,7 @@ int Mob::compute_defense()
 		double reduction = CastToClient()->GetIntoxication() / 2.0;
 		if (reduction > 20.0) {
 			reduction = std::min((110 - reduction) / 100.0, 1.0);
-			defense = reduction * static_cast<double>(defense);
+			defense = static_cast<int>(reduction * static_cast<double>(defense));
 		}
 	}
 
@@ -354,17 +332,35 @@ bool Mob::CheckHitChance(Mob* other, DamageHitInfo &hit)
 	if (accuracy == -1)
 		return true;
 
-	// so now we roll!
-	// relevant dev quote:
-	// Then your chance to simply avoid the attack is checked (defender's avoidance roll beat the attacker's accuracy roll.)
-	int tohit_roll = zone->random.Roll0(accuracy);
-	int avoid_roll = zone->random.Roll0(avoidance);
-	Log(Logs::Detail, Logs::Attack, "CheckHitChance accuracy(%d => %d) avoidance(%d => %d)", accuracy, tohit_roll, avoidance, avoid_roll);
+	// Dice-based hit system: 3 defender dice vs 4 attacker dice (5 if flanking).
+	// Defender needs 2 of 3 wins to avoid the hit.
+	const bool flanking = attacker->BehindMob(defender, attacker->GetX(), attacker->GetY());
+	const int attacker_dice_count = flanking ? 5 : 4;
+	constexpr int defender_dice_count = 3;
+	constexpr int dice_to_avoid = 2;
 
-	// tie breaker? Don't want to be biased any one way
-	if (tohit_roll == avoid_roll)
-		return zone->random.Roll(50);
-	return tohit_roll > avoid_roll;
+	// Sort descending so index 0 = highest roll.
+	// Attacker's extra dice land at the tail (lowest values) and are discarded,
+	// meaning only their best defender_dice_count rolls compete.
+	int def_dice[defender_dice_count];
+	for (int i = 0; i < defender_dice_count; ++i)
+		def_dice[i] = zone->random.Roll0(5 + avoidance) + 1;
+	std::sort(def_dice, def_dice + defender_dice_count, std::greater<int>());
+
+	int atk_dice[5];
+	for (int i = 0; i < attacker_dice_count; ++i)
+		atk_dice[i] = zone->random.Roll0(5 + accuracy) + 1;
+	std::sort(atk_dice, atk_dice + attacker_dice_count, std::greater<int>());
+
+	int defender_wins = 0;
+	for (int i = 0; i < defender_dice_count; ++i)
+		if (atk_dice[i] <= def_dice[i])
+			++defender_wins;
+
+	Log(Logs::Detail, Logs::Attack, "CheckHitChance accuracy(%d) avoidance(%d) flanking(%s) defender_wins(%d/%d)",
+		accuracy, avoidance, flanking ? "yes" : "no", defender_wins, dice_to_avoid);
+
+	return defender_wins < dice_to_avoid;
 }
 
 bool Mob::AvoidDamage(Mob *other, DamageHitInfo &hit)
@@ -588,7 +584,7 @@ bool Mob::AvoidDamage(Mob *other, DamageHitInfo &hit)
 	}
 
 	// dodge
-	if (CanThisClassDodge() && (InFront || GetClass() == Class::Monk)) {
+	if (CanThisClassDodge()) {
 		if (IsClient())
 			CastToClient()->CheckIncreaseSkill(EQ::skills::SkillDodge, other, -10);
 		// check auto discs ... I guess aa/items too :P
@@ -909,11 +905,11 @@ int Mob::ACSum(bool skip_caps)
 		shield_ac += itembonuses.heroic_str_shield_ac;
 	}
 	// EQ math
-	ac = (ac * 4) / 3;
+	// ac = (ac * 4) / 3;
 	// anti-twink
-	if (!skip_caps && IsOfClientBot() && GetLevel() < RuleI(Combat, LevelToStopACTwinkControl)) {
-		ac = std::min(ac, 25 + 6 * GetLevel());
-	}
+	// if (!skip_caps && IsOfClientBot() && GetLevel() < RuleI(Combat, LevelToStopACTwinkControl)) {
+	//	ac = std::min(ac, 25 + 6 * GetLevel());
+	//	}
 	ac = std::max(0, ac + GetClassRaceACBonus());
 	if (IsNPC()) {
 		// This is the developer tweaked number
@@ -930,30 +926,35 @@ int Mob::ACSum(bool skip_caps)
 			ac += spell_aa_ac / 4;
 	}
 	else { // TODO: so we can't set NPC skills ... so the skill bonus ends up being HUGE so lets nerf them a bit
+		// skills goin bye bye for clients for the most part
 		auto spell_aa_ac = aabonuses.AC + spellbonuses.AC;
 		if (EQ::ValueWithin(static_cast<int>(GetClass()), Class::Necromancer, Class::Enchanter))
-			ac += GetSkill(EQ::skills::SkillDefense) / 2 + spell_aa_ac / 3;
+			// ac += GetSkill(EQ::skills::SkillDefense) / 2 + spell_aa_ac / 3;
+			ac += spell_aa_ac;
 		else
-			ac += GetSkill(EQ::skills::SkillDefense) / 3 + spell_aa_ac / 4;
+			// ac += GetSkill(EQ::skills::SkillDefense) / 3 + spell_aa_ac / 4;
+			ac += spell_aa_ac;
 	}
 
-	if (GetAGI() > 70)
-		ac += GetAGI() / 20;
-	if (ac < 0)
-		ac = 0;
+	if (GetAGI())
+		ac += (GetAGI()-25) / 2;
+	if (ac < 1)
+		ac = 1;
 
 	if (!skip_caps && IsOfClientBot()) {
-		auto softcap = GetACSoftcap();
-		auto returns = GetSoftcapReturns();
-		int total_aclimitmod = aabonuses.CombatStability + itembonuses.CombatStability + spellbonuses.CombatStability;
-		if (total_aclimitmod)
-			softcap = (softcap * (100 + total_aclimitmod)) / 100;
-		softcap += shield_ac;
-		if (ac > softcap) {
-			auto over_cap = ac - softcap;
-			ac = softcap + (over_cap * returns);
-		}
-		LogCombatDetail("ACSum ac [{}] softcap [{}] returns [{}]", ac, softcap, returns);
+		// Removing ac softcaps for simplicity, fun, and profit
+		// we will also make combat stability finally do what its claimed to do for decades.
+		// auto softcap = GetACSoftcap();
+		// auto returns = GetSoftcapReturns();
+		int total_acmod = aabonuses.CombatStability + itembonuses.CombatStability + spellbonuses.CombatStability;
+		if (total_acmod)
+			ac = (ac * (100 + total_acmod)) / 100;
+		ac += shield_ac * 2;	// shield gives 3x ac
+		//	if (ac > softcap) {
+		//	auto over_cap = ac - softcap;
+		//	ac = softcap + (over_cap * returns);
+		//	}
+		LogCombatDetail("ACSum ac [{}]", ac);
 	}
 	else {
 		LogCombatDetail("ACSum ac [{}]", ac);
@@ -1081,32 +1082,66 @@ void Mob::MeleeMitigation(Mob *attacker, DamageHitInfo &hit, ExtraAttackOptions 
 		mitigation -= opts->armor_pen_flat;
 	}
 
-	auto roll = RollD20(hit.offense, mitigation);
+	// Determine ranged vs melee for stat selection
+	const bool is_ranged_mit = (hit.skill == EQ::skills::SkillArchery || hit.skill == EQ::skills::SkillThrowing);
 
-	// Add bonus to roll if level difference is sufficient
+	// offense for Do_Mitigation: 5 * level + DEX (melee) or STR (ranged)
+	const int off_stat = is_ranged_mit ? attacker->GetSTR() : attacker->GetDEX();
+	int offense = 5 * static_cast<int>(attacker->GetLevel()) + off_stat;
+	if (offense < 1) offense = 1;
+	if (mitigation < 1) mitigation = 1;
+
+	// max_hit = base_damage * max(0.5, (damage_stat - 25) * 0.02)
+	// damage stat: STR for melee, DEX for ranged
+	const int dmg_stat = is_ranged_mit ? attacker->GetDEX() : attacker->GetSTR();
+	const double stat_mult = std::max(0.5, (static_cast<double>(dmg_stat) - 25.0) * 0.02);
+	const double max_hit = static_cast<double>(hit.base_damage) * stat_mult;
+
+	// Do_Mitigation constants
+	constexpr double min_mit_cap = 100.0 / 80.0; // 1.25
+	constexpr double off_scalar  = 2.0;
+	constexpr double defense_dr  = 0.4;
+
+	const double min_mit = static_cast<double>(mitigation) /
+		(min_mit_cap * static_cast<double>(mitigation) + off_scalar * static_cast<double>(offense));
+
+	const int used_offense = zone->random.Roll0(5 + offense) + 1;
+	const int used_ac      = zone->random.Roll0(5 + mitigation) + 1;
+
+	double rolled_mit = static_cast<double>(used_ac) /
+		(off_scalar * static_cast<double>(used_offense) + defense_dr * static_cast<double>(used_ac));
+
+	if (rolled_mit > 1.0)
+		rolled_mit = 1.0;
+	else if (rolled_mit < min_mit)
+		rolled_mit = min_mit;
+
+	// Level difference modifier: higher attacker level reduces mitigation, lower increases it
 	const int level_diff            = attacker->GetLevel() - GetLevel();
 	const int level_diff_roll_check = RuleI(Combat, LevelDifferenceRollCheck);
-
 	if (level_diff_roll_check >= 0) {
-		if (level_diff > level_diff_roll_check) {
-			roll += RuleR(Combat, LevelDifferenceRollBonus);
-
-			if (roll > 2.0f) {
-				roll = 2.0f;
-			}
-		} else if (level_diff < (-level_diff_roll_check)) {
-			roll -= RuleR(Combat, LevelDifferenceRollBonus);
-
-			if (roll < 0.1f) {
-				roll = 0.1f;
-			}
-		}
+		const double level_bonus = static_cast<double>(RuleR(Combat, LevelDifferenceRollBonus));
+		if (level_diff > level_diff_roll_check)
+			rolled_mit -= level_bonus;
+		else if (level_diff < (-level_diff_roll_check))
+			rolled_mit += level_bonus;
+		rolled_mit = std::max(min_mit, std::min(1.0, rolled_mit));
 	}
 
-	// +0.5 for rounding, min to 1 dmg
-	hit.damage_done = std::max(static_cast<int>(roll * static_cast<double>(hit.base_damage) + 0.5), 1);
+	if (rolled_mit >= 1.0) {
+		// Armor fully deflected the blow — zero damage, send flavored message
+		const std::string skill_name = EQ::skills::GetSkillName(hit.skill);
+		const char* atk_name = skill_name.empty() ? "attack" : skill_name.c_str();
+		attacker->Message(Chat::Yellow, "Your %s was deflected by %s's armor!", atk_name, defender->GetName());
+		defender->Message(Chat::Yellow, "%s's %s was deflected by your armor!", attacker->GetName(), atk_name);
+		hit.damage_done = 0;
+	} else {
+		// +0.5 for rounding, min to 1 dmg
+		hit.damage_done = std::max(1, static_cast<int>(max_hit * (1.0 - rolled_mit) + 0.5));
+	}
 
-	Log(Logs::Detail, Logs::Attack, "mitigation %d vs offense %d. base %d rolled %f damage %d", mitigation, hit.offense, hit.base_damage, roll, hit.damage_done);
+	Log(Logs::Detail, Logs::Attack, "ac %d vs offense %d. base %d max_hit %.1f mit %.3f damage %d",
+		mitigation, offense, hit.base_damage, max_hit, rolled_mit, hit.damage_done);
 }
 
 //Returns the weapon damage against the input mob
@@ -3922,12 +3957,7 @@ bool Client::CheckDoubleAttack()
 	float chance = 0.0f;
 	uint16 skill = GetSkill(EQ::skills::SkillDoubleAttack);
 
-	int32 bonus_double_attack = 0;
-	if ((GetClass() == Class::Paladin || GetClass() == Class::ShadowKnight) && (!HasTwoHanderEquipped())) {
-		LogCombatDetail("Knight class without a 2 hand weapon equipped = No DA Bonus!");
-	} else {
-		bonus_double_attack = aabonuses.DoubleAttackChance + spellbonuses.DoubleAttackChance + itembonuses.DoubleAttackChance;
-	}
+	int32 bonus_double_attack = aabonuses.DoubleAttackChance + spellbonuses.DoubleAttackChance + itembonuses.DoubleAttackChance;
 
 	//Use skill calculations otherwise, if you only have AA applied GiveDoubleAttack chance then use that value as the base.
 	if (skill) {
@@ -3954,16 +3984,7 @@ bool Client::CheckTripleAttack()
 	int chance;
 
 	if (RuleB(Combat, ClassicTripleAttack)) {
-		if (
-			IsClient() &&
-			GetLevel() >= 60 &&
-			(
-				GetClass() == Class::Warrior ||
-				GetClass() == Class::Ranger ||
-				GetClass() == Class::Monk ||
-				GetClass() == Class::Berserker
-			)
-		) {
+		if (IsClient() && GetLevel() >= 60) {
 			switch (GetClass()) {
 				case Class::Warrior:
 					chance = RuleI(Combat, ClassicTripleAttackChanceWarrior);
@@ -3978,6 +3999,7 @@ bool Client::CheckTripleAttack()
 					chance = RuleI(Combat, ClassicTripleAttackChanceBerserker);
 					break;
 				default:
+					chance = RuleI(Combat, ClassicTripleAttackChanceWarrior);
 					break;
 			}
 		}
@@ -4322,8 +4344,7 @@ void Mob::CommonDamage(Mob* attacker, int64 &damage, const uint16 spell_id, cons
 					                  attacker->aabonuses.StunBashChance;
 				}
 			}
-			else if (skill_used == EQ::skills::SkillKick &&
-					attacker->GetClass() == Class::Warrior) {
+			else if (skill_used == EQ::skills::SkillKick) {
 				int stun_level = RuleI(Combat, NPCKickStunLevel);
 				if (attacker->IsClient()) {
 					stun_level = RuleI(Combat, PCKickStunLevel);
@@ -4331,47 +4352,18 @@ void Mob::CommonDamage(Mob* attacker, int64 &damage, const uint16 spell_id, cons
 				can_stun = (attacker->GetLevel() >= stun_level);
 			}
 
+			bool class_immune = IsPlayerClass(GetClass()) &&
+				(RuleI(Combat, FrontalStunImmunityClasses) & GetPlayerClassBit(GetClass()));
+			bool race_immune = GetBaseRace() == Race::OggokCitizen ||
+				(IsPlayerRace(GetBaseRace()) && (RuleI(Combat, FrontalStunImmunityRaces) & GetPlayerRaceBit(GetBaseRace())));
+
 			bool is_immune_to_frontal_stun = false;
-
 			if (IsOfClientBotMerc()) {
-				if (
-					IsPlayerClass(GetClass()) &&
-					RuleI(Combat, FrontalStunImmunityClasses) & GetPlayerClassBit(GetClass())
-				) {
-					is_immune_to_frontal_stun = true;
-				}
-
-
-				if (
-					(
-						IsPlayerRace(GetBaseRace()) &&
-						RuleI(Combat, FrontalStunImmunityRaces) & GetPlayerRaceBit(GetBaseRace())
-					) ||
-					GetBaseRace() == Race::OggokCitizen
-				) {
-					is_immune_to_frontal_stun = true;
-				}
+				is_immune_to_frontal_stun = class_immune || race_immune;
 			} else if (IsNPC()) {
-				if (
-					RuleB(Combat, NPCsUseFrontalStunImmunityClasses) &&
-					IsPlayerClass(GetClass()) &&
-					RuleI(Combat, FrontalStunImmunityClasses) & GetPlayerClassBit(GetClass())
-				) {
-					is_immune_to_frontal_stun = true;
-				}
-
-				if (
-					RuleB(Combat, NPCsUseFrontalStunImmunityRaces) &&
-					(
-						(
-							IsPlayerRace(GetBaseRace()) &&
-							RuleI(Combat, FrontalStunImmunityRaces) & GetPlayerRaceBit(GetBaseRace())
-						) ||
-						GetBaseRace() == Race::OggokCitizen
-					)
-				) {
-					is_immune_to_frontal_stun = true;
-				}
+				is_immune_to_frontal_stun =
+					(RuleB(Combat, NPCsUseFrontalStunImmunityClasses) && class_immune) ||
+					(RuleB(Combat, NPCsUseFrontalStunImmunityRaces) && race_immune);
 			}
 
 			if (
@@ -4402,28 +4394,16 @@ void Mob::CommonDamage(Mob* attacker, int64 &damage, const uint16 spell_id, cons
 						// nothing else to check!
 						Stun(RuleI(Combat, StunDuration));
 						if (RuleB(Combat, ClientStunMessage) && attacker->IsClient()) {
-							if (attacker) {
-								entity_list.FilteredMessageClose(
-									this,
-									true,
-									RuleI(Range, StunMessages),
-									Chat::Stun,
-									FilterStuns,
-									"%s is stunned after being bashed by %s.",
-									GetCleanName(),
-									attacker->GetCleanName()
-								);
-							} else {
-								entity_list.FilteredMessageClose(
-									this,
-									true,
-									RuleI(Range, StunMessages),
-									Chat::Stun,
-									FilterStuns,
-									"%s is stunned by a bash to the head.",
-									GetCleanName()
-								);
-							}
+							entity_list.FilteredMessageClose(
+								this,
+								true,
+								RuleI(Range, StunMessages),
+								Chat::Stun,
+								FilterStuns,
+								"%s is stunned after being bashed by %s.",
+								GetCleanName(),
+								attacker->GetCleanName()
+							);
 						}
 					} else {
 						// stun resist passed!
@@ -4482,7 +4462,13 @@ void Mob::CommonDamage(Mob* attacker, int64 &damage, const uint16 spell_id, cons
 				if (cur_hp_ratio != old_hp_ratio) {
 					SendHPUpdate(true);
 				}
-			} else if (!iBuffTic || died)	{ // Let regen handle buff tics unless this tic killed us.
+			} else if (!iBuffTic) {
+				// Send HP update to group/raid/targeted but NOT to self.
+				// OP_Damage (sent below) handles the client's own display; sending
+				// OP_HPUpdate to self first causes the client to show damage twice.
+				SendHPUpdate(true, false);
+			} else if (died) {
+				// Buff tick that kills: no OP_Damage follows, so self-send is fine.
 				SendHPUpdate(true);
 			}
 
@@ -4579,7 +4565,7 @@ void Mob::CommonDamage(Mob* attacker, int64 &damage, const uint16 spell_id, cons
 							&p, /* packet */
 							false, /* Skip Sender */
 							((IsValidSpell(spell_id)) ? RuleI(Range, SpellMessages) : RuleI(Range, DamageMessages)),
-							0, /* don't skip anyone on spell */
+							this, /* skip victim — they receive the packet via explicit QueuePacket below */
 							true, /* Packet ACK */
 							filter /* eqFilterType filter */
 						);
@@ -4661,7 +4647,7 @@ void Mob::CommonDamage(Mob* attacker, int64 &damage, const uint16 spell_id, cons
 								RuleI(Range, SpellMessages) :
 								RuleI(Range, DamageMessages)
 							),
-							0, /* don't skip anyone on spell */
+							this, /* skip victim — they receive the packet via explicit QueuePacket below */
 							true, /* Packet ACK */
 							filter /* eqFilterType filter */
 						);
@@ -5426,15 +5412,8 @@ void Mob::TryCriticalHit(Mob *defender, DamageHitInfo &hit, ExtraAttackOptions *
 	// a lot of good info: http://giline.versus.jp/shiden/damage_e.htm, http://giline.versus.jp/shiden/su.htm
 
 	// We either require an innate crit chance or some SPA 169 to crit
-	bool innate_crit = false;
+	bool innate_crit = GetLevel() >= 12;
 	int crit_chance = GetCriticalChanceBonus(hit.skill);
-	if ((GetClass() == Class::Warrior || GetClass() == Class::Berserker) && GetLevel() >= 12) {
-		innate_crit = true;
-	} else if (GetClass() == Class::Ranger && GetLevel() >= 12 && hit.skill == EQ::skills::SkillArchery) {
-		innate_crit = true;
-	} else if (GetClass() == Class::Rogue && GetLevel() >= 12 && hit.skill == EQ::skills::SkillThrowing) {
-		innate_crit = true;
-	}
 
 	// we have a chance to crit!
 	if (innate_crit || crit_chance) {
@@ -5457,8 +5436,7 @@ void Mob::TryCriticalHit(Mob *defender, DamageHitInfo &hit, ExtraAttackOptions *
 
 		dex_bonus += 45; // chances did not match live without a small boost
 
-						 // so if we have an innate crit we have a better chance, except for ber throwing
-		if (!innate_crit || (GetClass() == Class::Berserker && hit.skill == EQ::skills::SkillThrowing)) {
+		if (!innate_crit) {
 			dex_bonus = dex_bonus * 3 / 5;
 		}
 
@@ -5486,7 +5464,7 @@ void Mob::TryCriticalHit(Mob *defender, DamageHitInfo &hit, ExtraAttackOptions *
 			LogCombatDetail("Crit success roll [{}] dex chance [{}] og dmg [{}] crit_mod [{}] new dmg [{}]", roll, dex_bonus, og_damage, crit_mod, hit.damage_done);
 
 			// step 3: check deadly strike
-			if (GetClass() == Class::Rogue && hit.skill == EQ::skills::SkillThrowing) {
+			if (hit.skill == EQ::skills::SkillThrowing) {
 				if (BehindMob(defender, GetX(), GetY())) {
 					int chance = GetLevel() * 12;
 					if (zone->random.Int(1, 1000) < chance) {
@@ -5683,9 +5661,7 @@ void Mob::DoRiposte(Mob *defender)
 	if (DoubleRipChance && zone->random.Roll(DoubleRipChance)) {
 		LogCombat("Preforming a return SPECIAL ATTACK ([{}] percent chance)", DoubleRipChance);
 
-		if (defender->GetClass() == Class::Monk)
-			defender->MonkSpecialAttack(this, defender->aabonuses.GiveDoubleRiposte[SBIndex::DOUBLE_RIPOSTE_SKILL]);
-		else if (defender->IsClient()) // so yeah, even if you don't have the skill you can still do the attack :P (and we don't crash anymore)
+		if (defender->IsClient())
 			defender->CastToClient()->DoClassAttacks(this, defender->aabonuses.GiveDoubleRiposte[SBIndex::DOUBLE_RIPOSTE_SKILL], true);
 	}
 }
@@ -6369,7 +6345,7 @@ void Mob::CommonOutgoingHitSuccess(Mob* defender, DamageHitInfo &hit, ExtraAttac
 		if (headshot > 0) {
 			hit.damage_done = headshot;
 		}
-		else if (GetClass() == Class::Ranger && GetLevel() >= RuleI(Combat, ArcheryBonusLevelRequirement)) { // no double dmg on headshot
+		else if (GetLevel() >= RuleI(Combat, ArcheryBonusLevelRequirement)) { // no double dmg on headshot
 			if ((defender->IsNPC() && !defender->IsMoving() && !defender->IsRooted()) || !RuleB(Combat, ArcheryBonusRequiresStationary)) {
 				hit.damage_done *= 2;
 				MessageString(Chat::MeleeCrit, BOW_DOUBLE_DAMAGE);
@@ -6399,7 +6375,7 @@ void Mob::CommonOutgoingHitSuccess(Mob* defender, DamageHitInfo &hit, ExtraAttac
 			}
 		}
 	}
-	else if (hit.skill == EQ::skills::SkillFrenzy && GetClass() == Class::Berserker && GetLevel() > 50) {
+	else if (hit.skill == EQ::skills::SkillFrenzy && GetLevel() > 50) {
 		extra_mincap = 4 * GetLevel() / 5;
 	}
 

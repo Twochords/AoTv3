@@ -5410,6 +5410,7 @@ void Client::IncrementAggroCount(bool raid_target)
 	// This method is called when a client is added to a mob's hate list. It turns the clients aggro flag on so
 	// rest state regen is stopped, and for SoF, it sends the opcode to show the crossed swords in-combat indicator.
 	AggroCount++;
+	ooc_regen = false;
 
 	if(!RuleB(Character, RestRegenEnabled))
 		return;
@@ -10749,12 +10750,17 @@ std::vector<int> Client::GetLearnableDisciplines(uint8 min_level, uint8 max_leve
 			continue;
 		}
 
-		if (max_level && spells[spell_id].classes[m_pp.class_ - 1] > max_level) {
-			continue;
-		}
-
-		if (min_level > 1 && spells[spell_id].classes[m_pp.class_ - 1] < min_level) {
-			continue;
+		{
+			uint8 eff_lvl = spells[spell_id].classes[m_pp.class_ - 1];
+			if (eff_lvl >= UINT8_MAX) {
+				eff_lvl = UINT8_MAX;
+				for (int i = 0; i < Class::PLAYER_CLASS_COUNT; ++i)
+					if (spells[spell_id].classes[i] < eff_lvl)
+						eff_lvl = spells[spell_id].classes[i];
+				if (eff_lvl >= UINT8_MAX) eff_lvl = 1;
+			}
+			if (max_level && eff_lvl > max_level) continue;
+			if (min_level > 1 && eff_lvl < min_level) continue;
 		}
 
 		if (spells[spell_id].skill == EQ::skills::SkillTigerClaw) {
@@ -10820,12 +10826,17 @@ std::vector<int> Client::GetScribeableSpells(uint8 min_level, uint8 max_level) {
 			continue;
 		}
 
-		if (max_level && spells[spell_id].classes[m_pp.class_ - 1] > max_level) {
-			continue;
-		}
-
-		if (min_level > 1 && spells[spell_id].classes[m_pp.class_ - 1] < min_level) {
-			continue;
+		{
+			uint8 eff_lvl = spells[spell_id].classes[m_pp.class_ - 1];
+			if (eff_lvl >= UINT8_MAX) {
+				eff_lvl = UINT8_MAX;
+				for (int i = 0; i < Class::PLAYER_CLASS_COUNT; ++i)
+					if (spells[spell_id].classes[i] < eff_lvl)
+						eff_lvl = spells[spell_id].classes[i];
+				if (eff_lvl >= UINT8_MAX) eff_lvl = 1;
+			}
+			if (max_level && eff_lvl > max_level) continue;
+			if (min_level > 1 && eff_lvl < min_level) continue;
 		}
 
 		if (spells[spell_id].skill == EQ::skills::SkillTigerClaw) {

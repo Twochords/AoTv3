@@ -923,10 +923,6 @@ void Client::SendAlternateAdvancementRank(int aa_id, int level) {
 		return;
 	}
 
-	if(!(ability->classes & (1 << GetClass()))) {
-		return;
-	}
-
 	if(!CanUseAlternateAdvancementRank(rank)) {
 		return;
 	}

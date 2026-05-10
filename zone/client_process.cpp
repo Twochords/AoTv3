@@ -884,10 +884,6 @@ void Client::BulkSendMerchantInventory(int merchant_id, int npcid) {
 			continue;
 		}
 
-		if (!(ml.classes_required & (1 << (GetClass() - 1)))) {
-			continue;
-		}
-
 		if (!EQ::ValueWithin(Admin(), static_cast<int16>(ml.min_status), static_cast<int16>(ml.max_status))) {
 			continue;
 		}
@@ -1167,21 +1163,6 @@ void Client::OPMemorizeSpell(const EQApplicationPacket* app)
 		return;
 	}
 
-	if (
-		m->scribing != memSpellForget &&
-		(
-			!IsPlayerClass(GetClass()) ||
-			GetLevel() < spells[m->spell_id].classes[GetClass() - 1]
-		)
-	) {
-		MessageString(
-			Chat::Red,
-			SPELL_LEVEL_TO_LOW,
-			std::to_string(spells[m->spell_id].classes[GetClass() - 1]).c_str(),
-			spells[m->spell_id].name
-		);
-		return;
-	}
 
 	switch (m->scribing) {
 		case memSpellScribing: {
@@ -2041,15 +2022,14 @@ void Client::DoEnduranceUpkeep() {
 
 void Client::CalcRestState()
 {
-	// This method calculates rest state HP and mana regeneration.
-	// The client must have been out of combat for RuleI(Character, RestRegenTimeToActivate) seconds,
-	// must be sitting down, and must not have any detrimental spells affecting them.
+	// OOC regen: activates after RestRegenTimeToActivate seconds out of combat (no sitting required).
+	// Detrimental spells are dispelled when the timer expires rather than blocking regen.
 	if(!RuleB(Character, RestRegenEnabled))
 		return;
 
 	ooc_regen = false;
 
-	if(AggroCount || !(IsSitting() || CanMedOnHorse()))
+	if(AggroCount)
 		return;
 
 	if(!rest_timer.Check(false))
@@ -2058,12 +2038,14 @@ void Client::CalcRestState()
 	// so we don't have aggro, our timer has expired, we do not want this to cause issues
 	m_pp.RestTimer = 0;
 
-	uint32 buff_count = GetMaxTotalSlots();
-	for (unsigned int j = 0; j < buff_count; j++) {
-		if(IsValidSpell(buffs[j].spellid)) {
-			if(IsDetrimentalSpell(buffs[j].spellid) && (buffs[j].ticsremaining > 0))
-				if(!IsRestAllowedSpell(buffs[j].spellid))
-					return;
+	// Dispel detrimental effects when OOC timer expires. Iterate backwards so fading a slot
+	// doesn't affect indices we haven't visited yet.
+	int buff_count = static_cast<int>(GetMaxTotalSlots());
+	for (int j = buff_count - 1; j >= 0; j--) {
+		if (IsValidSpell(buffs[j].spellid)) {
+			if (IsDetrimentalSpell(buffs[j].spellid) && (buffs[j].ticsremaining > 0))
+				if (!IsRestAllowedSpell(buffs[j].spellid))
+					BuffFadeBySlot(j);
 		}
 	}
 

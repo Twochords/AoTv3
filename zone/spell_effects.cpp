@@ -7425,20 +7425,7 @@ int64 Mob::GetFocusIncoming(focusType type, int effect, Mob *caster, uint32 spel
 
 bool Mob::PassLimitClass(uint32 Classes_, uint16 Class_)
 {
-	//The class value for SpellEffect::LimitClass is +1 to its equivelent value in item dbase
-	//Example Bard on items is '128' while Bard on SpellEffect::LimitClass is '256', keep this in mind if making custom spells.
-	if (Class_ > 16)
-		return false;
-
-	Class_ += 1;
-	for (int CurrentClass = 1; CurrentClass <= Class::PLAYER_CLASS_COUNT; ++CurrentClass){
-		if (Classes_ % 2 == 1){
-			if (CurrentClass == Class_)
-				return true;
-		}
-		Classes_ >>= 1;
-	}
-	return false;
+	return true;
 }
 
 void Mob::DispelMagic(Mob* caster, uint16 spell_id, int effect_value)

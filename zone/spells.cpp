@@ -1047,18 +1047,34 @@ bool Mob::CheckFizzle(uint16 spell_id)
 
 bool Client::CheckFizzle(uint16 spell_id)
 {
+	if (RuleB(Spells, NoFizzle))
+		return true;
+
 	// GMs don't fizzle
 	if (GetGM()) {
 		Message(Chat::White, "Your GM flag prevents you from fizzling.");
 		return true;
 	}
 
+	// Effective spell level for fizzle: use this class's level if it can normally
+	// cast the spell, otherwise fall back to the minimum level across all classes
+	// so cross-class casting produces a sane fizzle difficulty instead of 255.
+	const auto class_spell_lvl = [&]() -> uint8 {
+		uint8 lvl = spells[spell_id].classes[GetClass() - 1];
+		if (lvl < UINT8_MAX) return lvl;
+		uint8 min_lvl = UINT8_MAX;
+		for (int i = 0; i < Class::PLAYER_CLASS_COUNT; ++i)
+			if (spells[spell_id].classes[i] < min_lvl)
+				min_lvl = spells[spell_id].classes[i];
+		return (min_lvl < UINT8_MAX) ? min_lvl : uint8(1);
+	}();
+
 	uint8 no_fizzle_level = 0;
 
 	//Live AA - Spell Casting Expertise, Mastery of the Past
 	no_fizzle_level = aabonuses.MasteryofPast + itembonuses.MasteryofPast + spellbonuses.MasteryofPast;
 
-	if (spells[spell_id].classes[GetClass()-1] < no_fizzle_level) {
+	if (class_spell_lvl < no_fizzle_level) {
 		return true;
 	}
 
@@ -1138,12 +1154,12 @@ bool Client::CheckFizzle(uint16 spell_id)
 	int par_skill;
 	int act_skill;
 
-	par_skill = spells[spell_id].classes[GetClass()-1] * 5 - 10;//IIRC even if you are lagging behind the skill levels you don't fizzle much
+	par_skill = class_spell_lvl * 5 - 10;//IIRC even if you are lagging behind the skill levels you don't fizzle much
 	if (par_skill > 235) {
 		par_skill = 235;
 	}
 
-	par_skill += spells[spell_id].classes[GetClass()-1]; // maximum of 270 for level 65 spell
+	par_skill += class_spell_lvl; // maximum of 270 for level 65 spell
 
 	act_skill = GetSkill(spells[spell_id].skill);
 	act_skill += GetLevel(); // maximum of whatever the client can cheat
@@ -5768,6 +5784,10 @@ void Mob::SendSpellBarEnable(uint16 spell_id)
 
 void Mob::Stun(int duration)
 {
+	// Block stuns during the post-stun immunity window (3x last stun duration).
+	if (stun_immunity_timer.GetRemainingTime() > 0)
+		return;
+
 	//make sure a shorter stun does not overwrite a longer one.
 	if(stunned && stunned_timer.GetRemainingTime() > uint32(duration))
 		return;
@@ -5785,6 +5805,7 @@ void Mob::Stun(int duration)
 	{
 		stunned = true;
 		stunned_timer.Start(duration);
+		stun_immunity_timer.Start(duration * 3);
 		SendAddPlayerState(PlayerState::Stunned);
 	}
 }

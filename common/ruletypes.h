@@ -527,6 +527,7 @@ RULE_INT(Spells, DefensiveProcPenaltyLevelGap, 6, "Defensive Proc Penalty Level 
 RULE_REAL(Spells, DefensiveProcPenaltyLevelGapModifier, 10.0f, "Defensive Proc Penalty Level Gap Modifier where procs start losing their proc rate at defined % after RuleI(Spells, DefensiveProcLevelGap) level difference")
 RULE_BOOL(Spells, DOTBonusDamageSplitOverDuration, true, "Disable to have Damage Over Time total bonus damage added to each tick instead of divided across duration")
 RULE_BOOL(Spells, HOTBonusHealingSplitOverDuration, true, "Disable to have Heal Over Time total bonus healing added to each tick instead of divided across duration")
+RULE_BOOL(Spells, NoFizzle, false, "When enabled all spells always succeed their fizzle check — no fizzle chance.")
 RULE_BOOL(Spells, UseLegacyFizzleCode, false, "Enable will turn on the legacy fizzle code which is far stricter and more accurate to 2001/2002 testing.")
 RULE_BOOL(Spells, LegacyManaburn, false, "Enable to have the legacy manaburn system from 2003 and earlier.")
 RULE_INT(Spells, LegacyManaburnCap, 9492, "Adjusted the hard cap (Normal or Crit) for the Legacy Manaburn system. DEFAULT: 9492")

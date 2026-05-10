@@ -1519,7 +1519,7 @@ void Mob::CreateHPPacket(EQApplicationPacket* app)
 	}
 }
 
-void Mob::SendHPUpdate(bool force_update_all)
+void Mob::SendHPUpdate(bool force_update_all, bool send_to_self)
 {
 
 	// If our HP is different from last HP update call - let's update selves
@@ -1534,12 +1534,14 @@ void Mob::SendHPUpdate(bool force_update_all)
 				last_hp
 			);
 
-			static EQApplicationPacket p(OP_HPUpdate, sizeof(SpawnHPUpdate_Struct));
-			auto b = (SpawnHPUpdate_Struct*) p.pBuffer;
-			b->cur_hp   = static_cast<uint32>(CastToClient()->GetHP() - itembonuses.HP);
-			b->spawn_id = GetID();
-			b->max_hp   = CastToClient()->GetMaxHP() - itembonuses.HP;
-			CastToClient()->QueuePacket(&p);
+			if (send_to_self) {
+				static EQApplicationPacket p(OP_HPUpdate, sizeof(SpawnHPUpdate_Struct));
+				auto b = (SpawnHPUpdate_Struct*) p.pBuffer;
+				b->cur_hp   = static_cast<uint32>(CastToClient()->GetHP() - itembonuses.HP);
+				b->spawn_id = GetID();
+				b->max_hp   = CastToClient()->GetMaxHP() - itembonuses.HP;
+				CastToClient()->QueuePacket(&p);
+			}
 
 			ResetHPUpdateTimer();
 
@@ -7247,7 +7249,16 @@ int8 Mob::GetDecayEffectValue(uint16 spell_id, uint16 spelleffect) {
 	if (!IsValidSpell(spell_id))
 		return false;
 
-	int spell_level = spells[spell_id].classes[(GetClass()%17) - 1];
+	// Use the class's level for this spell; fall back to the minimum across
+	// all classes so cross-class casting doesn't produce an invalid 255 level.
+	int spell_level = spells[spell_id].classes[(GetClass() % 17) - 1];
+	if (spell_level >= UINT8_MAX) {
+		spell_level = UINT8_MAX;
+		for (int i = 0; i < Class::PLAYER_CLASS_COUNT; ++i)
+			if (spells[spell_id].classes[i] < spell_level)
+				spell_level = spells[spell_id].classes[i];
+		if (spell_level >= UINT8_MAX) spell_level = 1;
+	}
 	int effect_value = 0;
 	int lvlModifier = 100;
 
@@ -7673,23 +7684,7 @@ int32 Mob::GetSpellStat(uint32 spell_id, const char *identifier, uint8 slot)
 
 bool Mob::CanClassEquipItem(uint32 item_id)
 {
-	const auto *item = database.GetItem(item_id);
-	if (!item) {
-		return false;
-	}
-
-	const uint16 item_classes = item->Classes;
-	if (item_classes == Class::ALL_CLASSES_BITMASK) {
-		return true;
-	}
-
-	const uint8 class_id = GetClass();
-	if (!IsPlayerClass(class_id)) {
-		return false;
-	}
-
-	const uint16 class_bitmask = GetPlayerClassBit(class_id);
-	return (item_classes & class_bitmask);
+	return database.GetItem(item_id) != nullptr;
 }
 
 bool Mob::CanRaceEquipItem(uint32 item_id)

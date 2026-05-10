@@ -283,11 +283,10 @@ int64 Client::CalcHPRegen(bool bCombat)
 	base = base * 100.0f * AreaHPRegen * 0.01f + 0.5f;
 	// another check for IsClient && !(base + item_regen) && Cur_HP <= 0 do --base; do later
 
-	if (!bCombat && CanFastRegen() && (IsSitting() || CanMedOnHorse())) {
-		auto max_hp = GetMaxHP();
-		int64 fast_regen = 6 * (max_hp / (zone && zone->newzone_data.fast_regen_hp > 0 ? zone->newzone_data.fast_regen_hp : 180));
-		if (base < fast_regen) // weird, but what the client is doing
-			base = fast_regen;
+	if (!bCombat && CanFastRegen()) {
+		int64 ooc_hp = GetMaxHP() / 4;
+		if (base < ooc_hp)
+			base = ooc_hp;
 	}
 
 	int64 regen = base + item_regen + spellbonuses.HPRegen; // TODO: client does this in buff tick
@@ -700,11 +699,10 @@ int64 Client::CalcManaRegen(bool bCombat)
 
 	regen = regen * 100.0f * AreaManaRegen * 0.01f + 0.5f;
 
-	if (!bCombat && CanFastRegen() && (IsSitting() || CanMedOnHorse())) {
-		auto max_mana = GetMaxMana();
-		int fast_regen = 6 * (max_mana / zone->newzone_data.fast_regen_mana);
-		if (regen < fast_regen) // weird, but what the client is doing
-			regen = fast_regen;
+	if (!bCombat && CanFastRegen()) {
+		int64 ooc_mana = GetMaxMana() / 4;
+		if (regen < ooc_mana)
+			regen = ooc_mana;
 	}
 
 	regen += spellbonuses.ManaRegen; // TODO: live does this in buff tick
@@ -1726,11 +1724,10 @@ int64 Client::CalcEnduranceRegen(bool bCombat)
 	auto aa_regen = aabonuses.EnduranceRegen;
 
 	int64 regen = base;
-	if (!bCombat && CanFastRegen() && (IsSitting() || CanMedOnHorse())) {
-		auto max_end = GetMaxEndurance();
-		int fast_regen = 6 * (max_end / zone->newzone_data.fast_regen_endurance);
-		if (aa_regen < fast_regen) // weird, but what the client is doing
-			aa_regen = fast_regen;
+	if (!bCombat && CanFastRegen()) {
+		int64 ooc_end = GetMaxEndurance() / 4;
+		if (aa_regen < ooc_end)
+			aa_regen = ooc_end;
 	}
 
 	regen += aa_regen;

@@ -843,7 +843,7 @@ public:
 	static void CreateSpawnPacket(EQApplicationPacket* app, NewSpawn_Struct* ns);
 	virtual void FillSpawnStruct(NewSpawn_Struct* ns, Mob* ForWho);
 	void CreateHPPacket(EQApplicationPacket* app);
-	void SendHPUpdate(bool force_update_all = false);
+	void SendHPUpdate(bool force_update_all = false, bool send_to_self = true);
 	virtual void ResetHPUpdateTimer() {}; // does nothing
 	static void SetSpawnLastNameByClass(NewSpawn_Struct* ns);
 	void SendRename(Mob* sender, const char* old_name, const char* new_name);
@@ -1815,6 +1815,7 @@ protected:
 	Mob* bindwound_target;
 
 	Timer stunned_timer;
+	Timer stun_immunity_timer;
 	Timer spun_timer;
 	Timer bardsong_timer;
 	Timer gravity_timer;
