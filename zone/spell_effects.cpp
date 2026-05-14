@@ -1375,6 +1375,7 @@ bool Mob::SpellEffect(Mob* caster, uint16 spell_id, float partial, int level_ove
 #endif
 				if (buffslot > -1) {
 					buffs[buffslot].melee_rune = effect_value;
+					buffs[buffslot].hit_number = effect_value;
 				}
 				break;
 			}
@@ -1386,6 +1387,7 @@ bool Mob::SpellEffect(Mob* caster, uint16 spell_id, float partial, int level_ove
 #endif
 				if (effect_value > 0 && buffslot > -1) {
 					buffs[buffslot].magic_rune = effect_value;
+					buffs[buffslot].hit_number = effect_value;
 				}
 
 				break;
@@ -1395,6 +1397,8 @@ bool Mob::SpellEffect(Mob* caster, uint16 spell_id, float partial, int level_ove
 			{
 				if (buffslot > -1) {
 					buffs[buffslot].melee_rune = spells[spell_id].max_value[i];
+					if (spells[spell_id].max_value[i] > 0)
+						buffs[buffslot].hit_number = spells[spell_id].max_value[i];
 				}
 				break;
 			}
@@ -1403,6 +1407,8 @@ bool Mob::SpellEffect(Mob* caster, uint16 spell_id, float partial, int level_ove
 			{
 				if (buffslot > -1) {
 					buffs[buffslot].melee_rune = spells[spell_id].max_value[i];
+					if (spells[spell_id].max_value[i] > 0)
+						buffs[buffslot].hit_number = spells[spell_id].max_value[i];
 				}
 				break;
 			}
@@ -1411,6 +1417,8 @@ bool Mob::SpellEffect(Mob* caster, uint16 spell_id, float partial, int level_ove
 			{
 				if (buffslot > -1) {
 					buffs[buffslot].magic_rune = spells[spell_id].max_value[i];
+					if (spells[spell_id].max_value[i] > 0)
+						buffs[buffslot].hit_number = spells[spell_id].max_value[i];
 				}
 				break;
 			}
@@ -1419,6 +1427,8 @@ bool Mob::SpellEffect(Mob* caster, uint16 spell_id, float partial, int level_ove
 			{
 				if (buffslot > -1) {
 					buffs[buffslot].magic_rune = spells[spell_id].max_value[i];
+					if (spells[spell_id].max_value[i] > 0)
+						buffs[buffslot].hit_number = spells[spell_id].max_value[i];
 				}
 				break;
 			}
@@ -1427,6 +1437,8 @@ bool Mob::SpellEffect(Mob* caster, uint16 spell_id, float partial, int level_ove
 			{
 				if (buffslot > -1) {
 					buffs[buffslot].dot_rune = spells[spell_id].max_value[i];
+					if (spells[spell_id].max_value[i] > 0)
+						buffs[buffslot].hit_number = spells[spell_id].max_value[i];
 				}
 				break;
 			}
@@ -2538,11 +2550,9 @@ bool Mob::SpellEffect(Mob* caster, uint16 spell_id, float partial, int level_ove
 #ifdef SPELL_EFFECT_SPAM
 				snprintf(effect_desc, _EDLEN, "Current Endurance: %+i", effect_value);
 #endif
-				if(IsClient()) {
-					CastToClient()->SetEndurance(CastToClient()->GetEndurance() + effect_value);
-					if (effect_value < 0) {
-						TryTriggerOnCastRequirement();
-					}
+				SetEndurance(GetEndurance() + effect_value);
+				if (effect_value < 0) {
+					TryTriggerOnCastRequirement();
 				}
 				break;
 			}
@@ -2552,12 +2562,9 @@ bool Mob::SpellEffect(Mob* caster, uint16 spell_id, float partial, int level_ove
 #ifdef SPELL_EFFECT_SPAM
 				snprintf(effect_desc, _EDLEN, "Current Endurance Once: %+i", effect_value);
 #endif
-
-				if (IsClient()) {
-					CastToClient()->SetEndurance(CastToClient()->GetEndurance() + effect_value);
-					if (effect_value < 0) {
-						TryTriggerOnCastRequirement();
-					}
+				SetEndurance(GetEndurance() + effect_value);
+				if (effect_value < 0) {
+					TryTriggerOnCastRequirement();
 				}
 				break;
 			}

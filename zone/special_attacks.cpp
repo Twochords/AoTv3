@@ -1013,7 +1013,7 @@ bool Client::RangedAttack(Mob* other, bool CanDoubleAttack) {
 }
 
 void Mob::DoArcheryAttackDmg(Mob *other, const EQ::ItemInstance *RangeWeapon, const EQ::ItemInstance *Ammo,
-							int32 weapon_damage, int16 chance_mod, int16 focus, int ReuseTime, uint32 range_id,
+							int32 dps_pct, int16 chance_mod, int16 focus, int ReuseTime, uint32 range_id,
 							uint32 ammo_id, const EQ::ItemData *AmmoItem, int AmmoSlot, float speed, bool DisableProcs)
 {
 	if ((other == nullptr ||
@@ -1070,11 +1070,20 @@ void Mob::DoArcheryAttackDmg(Mob *other, const EQ::ItemInstance *RangeWeapon, co
 	int64 TotalDmg = 0;
 	int WDmg = 0;
 	int ADmg = 0;
-	if (!weapon_damage) {
+	if (!dps_pct) {
 		WDmg = GetWeaponDamage(other, RangeWeapon);
 		ADmg = GetWeaponDamage(other, Ammo);
 	} else {
-		WDmg = weapon_damage;
+		const EQ::ItemInstance *bow = nullptr;
+		if (IsClient())
+			bow = CastToClient()->GetInv().GetItem(EQ::invslot::slotRange);
+		else if (IsBot())
+			bow = CastToBot()->GetBotItem(EQ::invslot::slotRange);
+		if (bow && bow->GetItem()) {
+			int32 dmg_stat = bow->GetItemWeaponDamage(true);
+			int32 delay    = std::max(1, (int32)bow->GetItem()->Delay);
+			WDmg           = dmg_stat * 10 * dps_pct / delay / 100;
+		}
 	}
 
 	if (LaunchProjectile) { // 1: Shoot the Projectile once we calculate weapon damage.
@@ -1617,7 +1626,7 @@ void Client::ThrowingAttack(Mob* other, bool CanDoubleAttack) { //old was 51
 }
 
 void Mob::DoThrowingAttackDmg(Mob *other, const EQ::ItemInstance *RangeWeapon, const EQ::ItemData *AmmoItem,
-	int32 weapon_damage, int16 chance_mod, int16 focus, int ReuseTime, uint32 range_id,
+	int32 dps_pct, int16 chance_mod, int16 focus, int ReuseTime, uint32 range_id,
 	int AmmoSlot, float speed, bool DisableProcs)
 {
 	if ((other == nullptr ||
@@ -1663,7 +1672,7 @@ void Mob::DoThrowingAttackDmg(Mob *other, const EQ::ItemInstance *RangeWeapon, c
 
 	int WDmg = 0;
 
-	if (!weapon_damage) {
+	if (!dps_pct) {
 		if (IsOfClientBot() && RangeWeapon) {
 			WDmg = GetWeaponDamage(other, RangeWeapon);
 		}
@@ -1678,7 +1687,16 @@ void Mob::DoThrowingAttackDmg(Mob *other, const EQ::ItemInstance *RangeWeapon, c
 		}
 	}
 	else {
-		WDmg = weapon_damage;
+		const EQ::ItemInstance *throw_item = nullptr;
+		if (IsClient())
+			throw_item = CastToClient()->GetInv().GetItem(EQ::invslot::slotAmmo);
+		else if (IsBot())
+			throw_item = CastToBot()->GetBotItem(EQ::invslot::slotAmmo);
+		if (throw_item && throw_item->GetItem()) {
+			int32 dmg_stat = throw_item->GetItemWeaponDamage(true);
+			int32 delay    = std::max(1, (int32)throw_item->GetItem()->Delay);
+			WDmg           = dmg_stat * 10 * dps_pct / delay / 100;
+		}
 	}
 
 	if (focus) { // no longer used, keep for quests
@@ -2507,11 +2525,18 @@ int Mob::TryAssassinate(Mob *defender, EQ::skills::SkillType skillInUse)
 	return 0;
 }
 
-void Mob::DoMeleeSkillAttackDmg(Mob *other, int32 weapon_damage, EQ::skills::SkillType skillinuse, int16 chance_mod,
+void Mob::DoMeleeSkillAttackDmg(Mob *other, int32 dps_pct, EQ::skills::SkillType skillinuse, int16 chance_mod,
 				int16 focus, bool can_riposte, int ReuseTime)
 {
 	if (!CanDoSpecialAttack(other)) {
 		return;
+	}
+
+	if (skillinuse == EQ::skills::SkillBackstab && !BehindMob(other, GetX(), GetY())) {
+		int frontal_chance = itembonuses.FrontalBackstabChance + spellbonuses.FrontalBackstabChance + aabonuses.FrontalBackstabChance;
+		if (!frontal_chance || !zone->random.Roll(frontal_chance)) {
+			return;
+		}
 	}
 
 	/*
@@ -2524,9 +2549,102 @@ void Mob::DoMeleeSkillAttackDmg(Mob *other, int32 weapon_damage, EQ::skills::Ski
 		skillinuse = EQ::skills::SkillOffense;
 	}
 
+	// Compute weapon_damage from dps_pct.
+	// Weapon-based skills: dmg_stat * 10 * dps_pct / delay / 100  (dps_pct 100 = 1s of DPS)
+	// Armor-based skills:  slot_ac * dps_pct / 100
+	int32 weapon_damage = 0;
+
+	if (IsNPC()) {
+		int32 dmg_stat = CastToNPC()->GetBaseDamage();
+		int32 delay    = std::max(1, CastToNPC()->GetAttackDelay());
+		weapon_damage  = dmg_stat * 10 * dps_pct / delay / 100;
+	} else {
+		auto get_slot = [&](int slot) -> const EQ::ItemInstance * {
+			if (IsClient()) return CastToClient()->GetInv().GetItem(slot);
+			if (IsBot())    return CastToBot()->GetBotItem(slot);
+			return nullptr;
+		};
+
+		switch (skillinuse) {
+			case EQ::skills::SkillDualWield: {
+				const EQ::ItemInstance *primary   = get_slot(EQ::invslot::slotPrimary);
+				const EQ::ItemInstance *secondary = get_slot(EQ::invslot::slotSecondary);
+				if (primary && primary->GetItem() && primary->GetItem()->IsType2HWeapon())
+					return;
+				// Non-weapon in offhand (shield etc.) is invalid; empty offhand is bare fist
+				if (secondary && secondary->GetItem() && !secondary->GetItem()->IsType1HWeapon())
+					return;
+				int32 dmg_stat, delay;
+				if (secondary && secondary->GetItem()) {
+					switch (secondary->GetItem()->ItemType) {
+						case EQ::item::ItemType1HSlash:    skillinuse = EQ::skills::Skill1HSlashing; break;
+						case EQ::item::ItemType1HPiercing: skillinuse = EQ::skills::Skill1HPiercing; break;
+						case EQ::item::ItemType1HBlunt:    skillinuse = EQ::skills::Skill1HBlunt;    break;
+						default:                           skillinuse = EQ::skills::SkillHandtoHand; break;
+					}
+					dmg_stat = secondary->GetItemWeaponDamage(true);
+					delay    = secondary->GetItem()->Delay;
+				} else {
+					skillinuse = EQ::skills::SkillHandtoHand;
+					dmg_stat   = GetHandToHandDamage();
+					delay      = GetHandToHandDelay();
+				}
+				delay         = std::max(1, delay);
+				weapon_damage = dmg_stat * 10 * dps_pct / delay / 100;
+				break;
+			}
+			case EQ::skills::SkillBash: {
+				// Shield present = bash (shield AC); no shield = slam (shoulder AC); neither = 1 damage
+				const EQ::ItemInstance *shield    = get_slot(EQ::invslot::slotSecondary);
+				const EQ::ItemInstance *shoulders = get_slot(EQ::invslot::slotShoulders);
+				bool has_shield    = shield    && shield->GetItem()    && shield->GetItem()->ItemType == EQ::item::ItemTypeShield;
+				bool has_shoulders = shoulders && shoulders->GetItem();
+				if (has_shield)
+					weapon_damage = std::max(1, shield->GetItem()->AC * dps_pct / 100);
+				else if (has_shoulders)
+					weapon_damage = std::max(1, shoulders->GetItem()->AC * dps_pct / 100);
+				else
+					weapon_damage = 1;
+				break;
+			}
+			case EQ::skills::SkillDragonPunch: // SkillTailRake is an alias
+			case EQ::skills::SkillEagleStrike:
+			case EQ::skills::SkillTigerClaw: {
+				const EQ::ItemInstance *gloves = get_slot(EQ::invslot::slotHands);
+				weapon_damage = (gloves && gloves->GetItem())
+				              ? std::max(1, gloves->GetItem()->AC * dps_pct / 100)
+				              : 1;
+				break;
+			}
+			case EQ::skills::SkillKick:
+			case EQ::skills::SkillRoundKick:
+			case EQ::skills::SkillFlyingKick: {
+				const EQ::ItemInstance *boots = get_slot(EQ::invslot::slotFeet);
+				weapon_damage = (boots && boots->GetItem())
+				              ? std::max(1, boots->GetItem()->AC * dps_pct / 100)
+				              : 1;
+				break;
+			}
+			default: {
+				const EQ::ItemInstance *primary = get_slot(EQ::invslot::slotPrimary);
+				int32 dmg_stat, delay;
+				if (primary && primary->GetItem()) {
+					dmg_stat = primary->GetItemWeaponDamage(true);
+					delay    = primary->GetItem()->Delay;
+				} else {
+					dmg_stat = GetHandToHandDamage();
+					delay    = GetHandToHandDelay();
+				}
+				delay         = std::max(1, delay);
+				weapon_damage = dmg_stat * 10 * dps_pct / delay / 100;
+				break;
+			}
+		}
+	}
+
 	int64 damage = 0;
-	int64 hate = 0;
-	if (hate == 0 && weapon_damage > 1) {
+	int64 hate   = 0;
+	if (weapon_damage > 1) {
 		hate = weapon_damage;
 	}
 

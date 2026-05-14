@@ -125,6 +125,7 @@ bool NPC::AICastSpell(Mob* tar, uint8 iChance, uint32 iSpellTypes, bool bInnates
 				 dist2 <= spells[AIspells[i].spellid].range*spells[AIspells[i].spellid].range
 				 )
 				&& (mana_cost <= GetMana() || GetMana() == GetMaxMana())
+				&& (spells[AIspells[i].spellid].endurance_cost == 0 || spells[AIspells[i].spellid].endurance_cost <= GetEndurance())
 				&& (AIspells[i].time_cancast + (zone->random.Int(0, 4) * 500)) <= Timer::GetCurrentTime() //break up the spelling casting over a period of time.
 				) {
 

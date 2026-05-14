@@ -6269,12 +6269,15 @@ int32 Mob::RuneAbsorb(int64 damage, uint16 type)
 	if (type == SpellEffect::Rune) {
 		for (uint32 slot = 0; slot < buff_max; slot++) {
 			if (slot == spellbonuses.MeleeRune[SBIndex::RUNE_BUFFSLOT] && spellbonuses.MeleeRune[SBIndex::RUNE_AMOUNT] && buffs[slot].melee_rune && IsValidSpell(buffs[slot].spellid)) {
-				int melee_rune_left = buffs[slot].melee_rune;
+				int64 melee_rune_left = static_cast<int64>(buffs[slot].melee_rune);
 
 				if (melee_rune_left > damage)
 				{
 					melee_rune_left -= damage;
-					buffs[slot].melee_rune = melee_rune_left;
+					buffs[slot].melee_rune = static_cast<uint32>(melee_rune_left);
+					buffs[slot].hit_number  = static_cast<uint32>(melee_rune_left);
+					if (IsClient())
+						CastToClient()->SendBuffDurationPacket(buffs[slot], slot);
 					return -6;
 				}
 
@@ -6293,11 +6296,14 @@ int32 Mob::RuneAbsorb(int64 damage, uint16 type)
 	else {
 		for (uint32 slot = 0; slot < buff_max; slot++) {
 			if (slot == spellbonuses.AbsorbMagicAtt[SBIndex::RUNE_BUFFSLOT] && spellbonuses.AbsorbMagicAtt[SBIndex::RUNE_AMOUNT] && buffs[slot].magic_rune && IsValidSpell(buffs[slot].spellid)) {
-				int magic_rune_left = buffs[slot].magic_rune;
+				int64 magic_rune_left = static_cast<int64>(buffs[slot].magic_rune);
 				if (magic_rune_left > damage)
 				{
 					magic_rune_left -= damage;
-					buffs[slot].magic_rune = magic_rune_left;
+					buffs[slot].magic_rune = static_cast<uint32>(magic_rune_left);
+					buffs[slot].hit_number  = static_cast<uint32>(magic_rune_left);
+					if (IsClient())
+						CastToClient()->SendBuffDurationPacket(buffs[slot], slot);
 					return 0;
 				}
 

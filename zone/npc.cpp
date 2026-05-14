@@ -167,6 +167,7 @@ NPC::NPC(const NPCType *npc_type_data, Spawn2 *in_respawn, const glm::vec4 &posi
 	m_loot_platinum      = 0;
 	max_dmg              = npc_type_data->max_dmg;
 	min_dmg              = npc_type_data->min_dmg;
+	current_endurance    = GetMaxEndurance();
 	attack_count         = npc_type_data->attack_count;
 	grid                 = 0;
 	wp_m                 = 0;
@@ -677,6 +678,10 @@ bool NPC::Process()
 		}
 		else {
 			SetHP(GetHP() + npc_hp_regen + npc_sitting_regen_bonus);
+		}
+
+		if (current_endurance < GetMaxEndurance() && !IsEngaged()) {
+			SetEndurance(GetEndurance() + GetMaxEndurance() * 25 / 100);
 		}
 
 		if (GetMana() < GetMaxMana()) {
