@@ -15144,6 +15144,53 @@ void Client::Handle_OP_TargetMouse(const EQApplicationPacket *app)
 			{
 				nt->SendBuffsToClient(this);
 			}
+
+			// Send extended targeting packets so the DLL can show absolute values.
+			// Mana/end format: {spawn_id(2), pct(1), max(4)} = 7 bytes.
+			// HP format: {spawn_id(2), pct(1), cur(4), max(4)} = 11 bytes (cur also sent for
+			// initial value; ongoing HP broadcasts from CreateHPPacket carry live cur).
+			// Client only reads the first 3 bytes of each; the DLL reads the rest.
+			{
+				const uint16 sid = (uint16)nt->GetID();
+
+				{
+					EQApplicationPacket mana_packet(OP_MobManaUpdate, 11);
+					char *mb = (char *)mana_packet.pBuffer;
+					memcpy(mb, &sid, 2);
+					mb[2] = (uint8)nt->GetManaPercent();
+					int32 mcur = (int32)nt->GetMana();
+					int32 mmax = (int32)nt->GetMaxMana();
+					memcpy(mb + 3, &mcur, 4);
+					memcpy(mb + 7, &mmax, 4);
+					QueuePacket(&mana_packet);
+				}
+
+				{
+					EQApplicationPacket end_packet(OP_MobEnduranceUpdate, 11);
+					char *eb = (char *)end_packet.pBuffer;
+					memcpy(eb, &sid, 2);
+					eb[2] = (uint8)nt->GetEndurancePercent();
+					int32 ecur = (int32)nt->GetEndurance();
+					int32 emax = (int32)nt->GetMaxEndurance();
+					memcpy(eb + 3, &ecur, 4);
+					memcpy(eb + 7, &emax, 4);
+					QueuePacket(&end_packet);
+				}
+
+				// Skip HP extended packet for self-target: local player SPAWNINFO already
+				// holds exact absolute HP values, so no extended data needed there.
+				if (nt != this) {
+					EQApplicationPacket hp_packet(OP_MobHealth, 11);
+					char *hb = (char *)hp_packet.pBuffer;
+					memcpy(hb, &sid, 2);
+					hb[2] = (uint8)nt->GetIntHPRatio();
+					int32 cur = (int32)nt->GetHP();
+					int32 max = (int32)nt->GetMaxHP();
+					memcpy(hb + 3, &cur, 4);
+					memcpy(hb + 7, &max, 4);
+					QueuePacket(&hp_packet);
+				}
+			}
 		}
 		else
 		{

@@ -202,8 +202,10 @@ Mob::Mob(
 		fearspeed      = ((float) base_fearspeed) * 0.025f;
 	}
 
-	last_hp_percent = 0;
-	last_hp         = 0;
+	last_hp_percent   = 0;
+	last_mana_percent = 0;
+	last_end_percent  = 0;
+	last_hp           = 0;
 
 	current_speed = base_runspeed;
 
@@ -274,6 +276,8 @@ Mob::Mob(
 	hp_regen_per_second  = in_hp_regen_per_second;
 	mana_regen           = in_mana_regen;
 	ooc_regen            = RuleI(NPC, OOCRegen); //default Out of Combat Regen
+	last_mana            = -1; // force first mana broadcast
+	last_end             = -1; // force first end broadcast
 	maxlevel             = in_maxlevel;
 	scalerate            = in_scalerate;
 	invisible            = 0;
@@ -1486,16 +1490,21 @@ void Mob::CreateDespawnPacket(EQApplicationPacket* app, bool Decay)
 
 void Mob::CreateHPPacket(EQApplicationPacket* app)
 {
+	// Extended to 7 bytes: {spawn_id(2), pct(1), cur_hp(4)}.
+	// Client reads only the first 3 bytes; the DLL reads cur_hp for live label display.
+	static const size_t kExtSize = sizeof(SpawnHPUpdate_Struct2) + sizeof(int32);
 	app->SetOpcode(OP_MobHealth);
-	app->size = sizeof(SpawnHPUpdate_Struct2);
+	app->size = kExtSize;
 	safe_delete_array(app->pBuffer);
 	app->pBuffer = new uchar[app->size];
-	memset(app->pBuffer, 0, sizeof(SpawnHPUpdate_Struct2));
+	memset(app->pBuffer, 0, kExtSize);
 	SpawnHPUpdate_Struct2* ds = (SpawnHPUpdate_Struct2*)app->pBuffer;
 
 	ds->spawn_id = GetID();
 	// they don't need to know the real hp
 	ds->hp = (int)GetHPRatio();
+	int32 cur_hp = (int32)GetHP();
+	memcpy(app->pBuffer + sizeof(SpawnHPUpdate_Struct2), &cur_hp, sizeof(int32));
 
 	// hp event
 	if (IsNPC() && (GetNextHPEvent() > 0)) {
@@ -1559,7 +1568,7 @@ void Mob::SendHPUpdate(bool force_update_all, bool send_to_self)
 		last_hp_percent
 	);
 
-	if (current_hp_percent == last_hp_percent && !force_update_all) {
+	if (current_hp_percent == last_hp_percent && current_hp == (int64)last_hp && !force_update_all) {
 		LogHPUpdateDetail("Same HP for mob [{}] skipping update", GetCleanName());
 		ResetHPUpdateTimer();
 		return;
@@ -1573,6 +1582,7 @@ void Mob::SendHPUpdate(bool force_update_all, bool send_to_self)
 		LogHPUpdate("HP Changed for mob [{}] send update", GetCleanName());
 
 		last_hp_percent = current_hp_percent;
+		last_hp = (int32)current_hp;
 	}
 
 	EQApplicationPacket hp_packet;
@@ -1585,6 +1595,51 @@ void Mob::SendHPUpdate(bool force_update_all, bool send_to_self)
 
 	// Update those who have us on x-target
 	entity_list.QueueClientsByXTarget(this, &hp_packet, false);
+
+	// Send mana and endurance percent to clients who have us targeted
+	uint8 cur_mana_percent = (uint8)GetManaPercent();
+	uint8 cur_end_percent  = (uint8)GetEndurancePercent();
+
+	// Extended mana/end packets: {spawn_id(2), pct(1), cur(4)} = 7 bytes.
+	// Fire on any exact change (not just integer-percent boundaries) so labels stay live.
+	// iSendToSender=true so self-targeting players receive their own updates.
+	int64 cur_mana = GetMana();
+	int64 cur_end  = GetEndurance();
+
+	// Extended packets: {spawn_id(2), pct(1), cur(4), max(4)} = 11 bytes.
+	// Fire on any exact change (not just integer-percent boundaries) so labels stay live.
+	// iSendToSender=true so self-targeting players receive their own updates.
+	if (cur_mana != last_mana || force_update_all) {
+		last_mana_percent = cur_mana_percent;
+		last_mana         = cur_mana;
+		EQApplicationPacket mana_packet(OP_MobManaUpdate, 11);
+		char *mb = (char *)mana_packet.pBuffer;
+		uint16 msid = GetID();
+		memcpy(mb, &msid, 2);
+		mb[2] = cur_mana_percent;
+		int32 mcur = (int32)cur_mana;
+		int32 mmax = (int32)GetMaxMana();
+		memcpy(mb + 3, &mcur, 4);
+		memcpy(mb + 7, &mmax, 4);
+		entity_list.QueueClientsByTarget(this, &mana_packet, true, 0, false, true, EQ::versions::maskAllClients);
+		entity_list.QueueClientsByXTarget(this, &mana_packet, true);
+	}
+
+	if (cur_end != last_end || force_update_all) {
+		last_end_percent = cur_end_percent;
+		last_end         = cur_end;
+		EQApplicationPacket end_packet(OP_MobEnduranceUpdate, 11);
+		char *eb = (char *)end_packet.pBuffer;
+		uint16 esid = GetID();
+		memcpy(eb, &esid, 2);
+		eb[2] = cur_end_percent;
+		int32 ecur = (int32)cur_end;
+		int32 emax = (int32)GetMaxEndurance();
+		memcpy(eb + 3, &ecur, 4);
+		memcpy(eb + 7, &emax, 4);
+		entity_list.QueueClientsByTarget(this, &end_packet, true, 0, false, true, EQ::versions::maskAllClients);
+		entity_list.QueueClientsByXTarget(this, &end_packet, true);
+	}
 
 	// Update groups using Group LAA health name tag counter
 	entity_list.QueueToGroupsForNPCHealthAA(this, &hp_packet);

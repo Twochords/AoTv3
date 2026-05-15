@@ -1865,7 +1865,11 @@ protected:
 	int pausetype;
 
 	int8 last_hp_percent;
+	int8 last_mana_percent;
+	int8 last_end_percent;
 	int32 last_hp;
+	int64 last_mana;
+	int64 last_end;
 
 	int cur_wp;
 	glm::vec4 m_CurrentWayPoint;

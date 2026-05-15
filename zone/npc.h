@@ -306,7 +306,7 @@ public:
 	int GetMinDamage() const { return min_damage; }
 	int64 GetEndurance() const override { return current_endurance; }
 	int64 GetMaxEndurance() const override { return (GetSTR() + GetSTA() + GetDEX() + GetAGI()) / 4 + 25; }
-	void SetEndurance(int32 newEnd) override { current_endurance = std::max(0LL, std::min((int64)newEnd, GetMaxEndurance())); }
+	void SetEndurance(int32 newEnd) override { current_endurance = std::max((int64)0, std::min((int64)newEnd, GetMaxEndurance())); }
 	uint8 GetEndurancePercent() override { return GetMaxEndurance() > 0 ? (uint8)(current_endurance * 100 / GetMaxEndurance()) : 0; }
 	float GetSlowMitigation() const { return slow_mitigation; }
 	float	GetAttackSpeed() const {return attack_speed;}
