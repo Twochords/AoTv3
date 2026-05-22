@@ -453,6 +453,9 @@ struct StatBonuses {
 	int32	SkillDamageAmount2[EQ::skills::HIGHEST_SKILL + 2];	// Adds skill specific damage
 	uint32	NegateAttacks[3];					// 0 = bool HasEffect 1 = Buff Slot 2 = Max damage absorbed per hit
 	uint32	MitigateMeleeRune[4];				// 0 = Mitigation value 1 = Buff Slot 2 = Max mitigation per hit 3 = Rune Amt
+	int32	MeleeHitFlatAbsorb;				// SPA 529: flat damage absorbed per melee hit received, no depletion cap
+	int32	MeleeHitPctAbsorb;				// SPA 530: % of melee damage reduced per hit received
+	int32	MeleeHitPctAbsorbEndurCost;		// SPA 530: endurance cost per hit gating MeleeHitPctAbsorb (0 = always applies)
 	uint32	MeleeThresholdGuard[3];				// 0 = Mitigation value 1 = Buff Slot 2 = Min damage to trigger.
 	uint32	SpellThresholdGuard[3];				// 0 = Mitigation value 1 = Buff Slot 2 = Min damage to trigger.
 	uint32	MitigateSpellRune[4];				// 0 = Mitigation value 1 = Buff Slot 2 = Max mitigation per spell 3 = Rune Amt

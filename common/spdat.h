@@ -1587,6 +1587,12 @@ namespace SpellEffect {
 	constexpr int Duration_HP_Pct                 = 524; // implemented - Decrease Current Hit Points by % of Total Hit Points per Tick, up to a MAX per tick
 	constexpr int Duration_Mana_Pct               = 525; // implemented - Decrease Current Mana by % of Total Mana per Tick, up to a MAX per tick
 	constexpr int Duration_Endurance_Pct          = 526; // implemented - Decrease Current Endurance by % of Total Hit Points per Tick, up to a MAX per tick
+
+	// AoTv3 custom SPAs — 527+
+	constexpr int EnduranceToMana    = 527; // AoT DoBuffTic per-tick, base: flat endurance drained from holder, limit: % of max mana restored to holder
+	constexpr int HPDrainToMana      = 528; // AoT DoBuffTic per-tick, base: % of max HP drained from holder, limit: % of max mana restored to holder
+	constexpr int MeleeHitFlatAbsorb = 529; // AoT ReduceDamage per-hit, base: flat damage absorbed per melee hit (no depletion cap)
+	constexpr int MeleeHitPctAbsorb  = 530; // AoT ReduceDamage per-hit, base: % of melee damage reduced, limit: endurance cost per hit (0 = free)
 }
 
 #define DF_Permanent				50

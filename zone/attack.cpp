@@ -3702,6 +3702,24 @@ int64 Mob::ReduceDamage(int64 damage)
 	if (damage < 1)
 		return DMG_RUNE;
 
+	// AoT: flat per-hit absorb (Passive Protection)
+	if (spellbonuses.MeleeHitFlatAbsorb > 0)
+		damage = std::max((int64)1, damage - (int64)spellbonuses.MeleeHitFlatAbsorb);
+
+	// AoT: % per-hit absorb, gated on endurance when cost > 0 (Sturdy Footing)
+	if (spellbonuses.MeleeHitPctAbsorb > 0) {
+		bool apply = true;
+		if (IsClient() && spellbonuses.MeleeHitPctAbsorbEndurCost > 0) {
+			Client *c = CastToClient();
+			if (c->GetEndurance() >= spellbonuses.MeleeHitPctAbsorbEndurCost)
+				c->SetEndurance(c->GetEndurance() - spellbonuses.MeleeHitPctAbsorbEndurCost);
+			else
+				apply = false;
+		}
+		if (apply)
+			damage = std::max((int64)1, damage - damage * spellbonuses.MeleeHitPctAbsorb / 100);
+	}
+
 	if (spellbonuses.MeleeRune[SBIndex::RUNE_AMOUNT] && spellbonuses.MeleeRune[SBIndex::RUNE_BUFFSLOT] >= 0)
 		damage = RuneAbsorb(damage, SpellEffect::Rune);
 

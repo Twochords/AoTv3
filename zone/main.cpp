@@ -472,6 +472,7 @@ int main(int argc, char **argv)
 	Timer InterserverTimer(INTERSERVER_TIMER); // does MySQL pings and auto-reconnect
 	Timer UpdateWhoTimer(RuleI(Zone, UpdateWhoTimer) * 1000); // updates who list every 2 minutes
 	Timer WorldserverProcess(1000);
+	Timer PassiveAuraTimer(6000); // one EQ tic = 6 s; drives passive aura heartbeat
 
 #ifdef EQPROFILE
 #ifdef PROFILE_DUMP_TIME
@@ -604,6 +605,10 @@ int main(int argc, char **argv)
 				entity_list.MobProcess();
 				entity_list.BeaconProcess();
 				entity_list.EncounterProcess();
+
+				if (PassiveAuraTimer.Check()) {
+					entity_list.ProcessPassiveAuras();
+				}
 
 				ZoneEventScheduler::Instance()->Process(zone, WorldContentService::Instance());
 

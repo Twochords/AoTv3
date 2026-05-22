@@ -36,6 +36,7 @@
 #include <cstdio>
 #include <cstring>
 #include <iostream>
+#include <unordered_set>
 
 extern Zone *zone;
 extern volatile bool is_zone_loaded;
@@ -5992,6 +5993,215 @@ void EntityList::RestoreCorpse(NPC *npc, uint32_t decay_time)
 		c->UnLock();
 		c->SetDecayTimer(decay_time);
 	}
+}
+
+// buffdurationformula=52 marks a passive aura. Buffs are applied as permanent
+// (ticsremaining=-1, no timer shown). Resource costs are drained from the CASTER
+// on a per-spell interval controlled by spells[sid].recast_time (ms):
+//   recast_time=0      → free passive, no drain ever
+//   recast_time=6000   → costs drained once per EQ tick (every 6 s)
+//   recast_time=30000  → costs drained every 30 s
+//
+// Cost fields (paid by caster, not buff holder):
+//   spells[sid].mana           → mana drained from caster per interval
+//   spells[sid].endurance_cost → endurance drained from caster per interval
+//
+// If the caster cannot afford a payment the aura is considered inactive for
+// this spell and all instances of it are faded immediately (pass 2). The buff
+// re-applies automatically once the caster can afford the next interval.
+//
+// The upkeep schedule (m_passive_upkeep_times) is per-zone and resets on zone
+// transition / disconnect, so costs are always due on first tick in a new zone.
+void EntityList::ProcessPassiveAuras()
+{
+	static constexpr uint32 PASSIVE_FORMULA = 52;
+
+	// ── Cost / active-set phase ───────────────────────────────────────────────
+	// Determines which (caster, spell) pairs are funded this tick and deducts
+	// the cost. Pairs that cannot afford their interval payment are excluded and
+	// their buffs will be faded in pass 2.
+	std::unordered_set<uint32> active_pairs; // key = (caster_id << 16) | spell_id
+	const uint32 now_ms = Timer::GetCurrentTime();
+
+	for (const auto& entry : client_list) {
+		Client* caster = entry.second;
+		if (!caster || caster->GetHP() <= 0) {
+			continue;
+		}
+
+		const PlayerProfile_Struct& pp = caster->GetPP();
+
+		for (int gem = 0; gem < EQ::spells::SPELL_GEM_COUNT; ++gem) {
+			const uint32 sid_u = pp.mem_spells[gem];
+			if (!IsValidSpell(sid_u)) {
+				continue;
+			}
+			const auto sid = static_cast<uint16>(sid_u);
+			if (spells[sid].buff_duration_formula != PASSIVE_FORMULA) {
+				continue;
+			}
+
+			const uint32 key          = (static_cast<uint32>(caster->GetID()) << 16) | sid;
+			const uint32 interval_ms  = spells[sid].recast_time;
+			const int32  mana_cost    = spells[sid].mana;
+			const int32  endur_cost   = spells[sid].endurance_cost;
+
+			// Free passive (no interval): always active, never deducted.
+			if (interval_ms == 0) {
+				active_pairs.insert(key);
+				continue;
+			}
+
+			// Check if payment is due this tick.
+			auto it = m_passive_upkeep_times.find(key);
+			if (it != m_passive_upkeep_times.end() && now_ms < it->second) {
+				// Not due yet — still active for this tick.
+				active_pairs.insert(key);
+				continue;
+			}
+
+			// Payment is due. Check affordability.
+			if (mana_cost  > 0 && caster->GetMana()      < mana_cost)  continue; // can't pay
+			if (endur_cost > 0 && caster->GetEndurance() < endur_cost) continue; // can't pay
+
+			// Deduct and schedule next payment.
+			if (mana_cost  > 0) caster->SetMana(caster->GetMana() - mana_cost);
+			if (endur_cost > 0) caster->SetEndurance(caster->GetEndurance() - endur_cost);
+			m_passive_upkeep_times[key] = now_ms + interval_ms;
+			active_pairs.insert(key);
+		}
+	}
+
+	// ── Pass 1: apply missing buffs for funded, in-condition pairs ────────────
+	for (const auto& entry : client_list) {
+		Client* caster = entry.second;
+		if (!caster || caster->GetHP() <= 0) {
+			continue;
+		}
+
+		const PlayerProfile_Struct& pp = caster->GetPP();
+		Group* group = nullptr; // resolved lazily below
+
+		for (int gem = 0; gem < EQ::spells::SPELL_GEM_COUNT; ++gem) {
+			const uint32 sid_u = pp.mem_spells[gem];
+			if (!IsValidSpell(sid_u)) {
+				continue;
+			}
+			const auto sid = static_cast<uint16>(sid_u);
+			if (spells[sid].buff_duration_formula != PASSIVE_FORMULA) {
+				continue;
+			}
+
+			const uint32 key = (static_cast<uint32>(caster->GetID()) << 16) | sid;
+			if (active_pairs.find(key) == active_pairs.end()) {
+				continue; // unfunded this tick
+			}
+
+			const SpellTargetType ttype = spells[sid].target_type;
+
+			if (ttype == ST_Self) {
+				ApplyPassiveBuffIfMissing(caster, caster, sid);
+
+			} else if (ttype == ST_Group) {
+				if (!group) {
+					group = GetGroupByClient(caster);
+				}
+				if (!group) {
+					ApplyPassiveBuffIfMissing(caster, caster, sid);
+					continue;
+				}
+
+				const float range    = spells[sid].range > 0.0f ? spells[sid].range : 200.0f;
+				const float range_sq = range * range;
+				const float cx = caster->GetX(), cy = caster->GetY(), cz = caster->GetZ();
+
+				std::list<Mob*> members;
+				group->GetMemberList(members);
+				for (Mob* m : members) {
+					if (!m || m->GetHP() <= 0) {
+						continue;
+					}
+					const float dx = cx - m->GetX();
+					const float dy = cy - m->GetY();
+					const float dz = cz - m->GetZ();
+					if (dx * dx + dy * dy + dz * dz <= range_sq) {
+						ApplyPassiveBuffIfMissing(caster, m, sid);
+					}
+				}
+			}
+		}
+	}
+
+	// ── Pass 2: explicit fade ─────────────────────────────────────────────────
+	// Fades passive buffs when the caster can't fund the spell, unmemorized it,
+	// died/disconnected, or (for group spells) the target is out of group/range.
+	for (const auto& entry : client_list) {
+		Client* target = entry.second;
+		if (!target) {
+			continue;
+		}
+
+		const Buffs_Struct* buffs     = target->GetBuffs();
+		const int           max_slots = target->GetMaxTotalSlots();
+
+		std::vector<std::pair<uint16, uint16>> to_fade; // {spell_id, caster_id}
+
+		for (int slot = 0; slot < max_slots; ++slot) {
+			const uint16 sid = buffs[slot].spellid;
+			if (!IsValidSpell(sid) || spells[sid].buff_duration_formula != PASSIVE_FORMULA) {
+				continue;
+			}
+
+			const uint16 caster_id = buffs[slot].casterid;
+			Client*      caster    = GetClientByID(caster_id);
+
+			bool should_fade = !caster || caster->GetHP() <= 0;
+
+			if (!should_fade) {
+				// Fade if caster ran out of resources (not in active set).
+				const uint32 key = (static_cast<uint32>(caster_id) << 16) | sid;
+				should_fade = (active_pairs.find(key) == active_pairs.end());
+			}
+
+			if (!should_fade && spells[sid].target_type == ST_Group) {
+				Group* caster_group = GetGroupByClient(caster);
+				if (!caster_group) {
+					should_fade = (target != static_cast<Mob*>(caster));
+				} else if (!caster_group->IsGroupMember(target)) {
+					should_fade = true;
+				} else {
+					const float range = spells[sid].range > 0.0f ? spells[sid].range : 200.0f;
+					const float dx    = caster->GetX() - target->GetX();
+					const float dy    = caster->GetY() - target->GetY();
+					const float dz    = caster->GetZ() - target->GetZ();
+					should_fade = (dx * dx + dy * dy + dz * dz > range * range);
+				}
+			}
+
+			if (should_fade) {
+				to_fade.emplace_back(sid, caster_id);
+			}
+		}
+
+		for (const auto& [sid, caster_id] : to_fade) {
+			target->BuffFadeBySpellIDAndCaster(sid, caster_id);
+		}
+	}
+}
+
+// Apply the buff as permanent (PERMANENT_BUFF_DURATION, no timer shown) if not already present.
+void EntityList::ApplyPassiveBuffIfMissing(Mob* caster, Mob* target, uint16 spell_id)
+{
+	const Buffs_Struct* buffs     = target->GetBuffs();
+	const int           max_slots = target->GetMaxTotalSlots();
+
+	for (int slot = 0; slot < max_slots; ++slot) {
+		if (buffs[slot].spellid == spell_id) {
+			return;
+		}
+	}
+
+	target->SpellEffect(caster, spell_id, 100.0f, -1, 0, PERMANENT_BUFF_DURATION);
 }
 
 void EntityList::CheckToClearTraderAndBuyerTables()

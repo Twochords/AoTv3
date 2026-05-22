@@ -3418,6 +3418,10 @@ bool Mob::SpellEffect(Mob* caster, uint16 spell_id, float partial, int level_ove
 			case SpellEffect::InvisVsUndead2:
 			case SpellEffect::Shield_Target:
 			case SpellEffect::ReduceSkill:
+			case SpellEffect::EnduranceToMana:
+			case SpellEffect::HPDrainToMana:
+			case SpellEffect::MeleeHitFlatAbsorb:
+			case SpellEffect::MeleeHitPctAbsorb:
 			{
 				break;
 			}
@@ -4229,6 +4233,37 @@ void Mob::DoBuffTic(const Buffs_Struct &buff, int slot, Mob *caster)
 					CastToClient()->SetEndurance(CastToClient()->GetEndurance() + amt);
 				}
 			}
+			break;
+		}
+
+		case SpellEffect::EnduranceToMana: {
+			// AoT: drain flat endurance (base_value), restore % of max mana (limit_value) per tick
+			if (!IsClient()) break;
+			Client *c = CastToClient();
+			const int32 endur_cost = spell.base_value[i];
+			const int32 mana_pct   = spell.limit_value[i];
+			if (endur_cost > 0 && c->GetEndurance() < endur_cost)
+				break;
+			if (endur_cost > 0)
+				c->SetEndurance(c->GetEndurance() - endur_cost);
+			const int32 max_mana  = GetMaxMana();
+			const int32 mana_gain = max_mana * mana_pct / 100;
+			if (mana_gain > 0 && GetMana() < max_mana)
+				SetMana(GetMana() + mana_gain > max_mana ? max_mana : GetMana() + mana_gain);
+			break;
+		}
+
+		case SpellEffect::HPDrainToMana: {
+			// AoT: drain % of max HP (base_value), restore % of max mana (limit_value) per tick
+			if (!IsClient()) break;
+			Client *c = CastToClient();
+			const int64 hp_cost  = GetMaxHP() * spell.base_value[i] / 100;
+			if (GetHP() <= hp_cost) break;
+			SetHP(GetHP() - hp_cost);
+			const int32 max_mana  = GetMaxMana();
+			const int32 mana_gain = max_mana * spell.limit_value[i] / 100;
+			if (mana_gain > 0 && GetMana() < max_mana)
+				SetMana(GetMana() + mana_gain > max_mana ? max_mana : GetMana() + mana_gain);
 			break;
 		}
 

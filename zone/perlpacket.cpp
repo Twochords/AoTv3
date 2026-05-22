@@ -34,9 +34,15 @@ PerlPacket::~PerlPacket() {
 }
 
 bool PerlPacket::SetOpcode(const char *opcode) {
+	// Linear search through the global OpcodeNames table
+	for (EmuOpcode e = OP_Unknown; e < _maxEmuOpcode; e = static_cast<EmuOpcode>(e + 1)) {
+		if (!strcasecmp(OpcodeNames[e], opcode)) {
+			op = e;
+			return true;
+		}
+	}
 	op = OP_Unknown;
-//	op = ZoneOpcodeManager->NameSearch(opcode);
-	return(op != OP_Unknown);
+	return false;
 }
 
 void PerlPacket::Resize(uint32 length) {

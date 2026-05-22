@@ -271,6 +271,7 @@ public:
 	void	EncounterProcess();
 	void	ProcessMove(Client *c, const glm::vec3& location);
 	void	ProcessMove(NPC *n, float x, float y, float z);
+	void	ProcessPassiveAuras();
 	void	AddArea(int id, int type, float min_x, float max_x, float min_y, float max_y, float min_z, float max_z);
 	void	RemoveArea(int id);
 	void	ClearAreas();
@@ -588,6 +589,7 @@ protected:
 private:
 	void	AddToSpawnQueue(uint16 entityid, NewSpawn_Struct** app);
 	void	CheckSpawnQueue();
+	static void ApplyPassiveBuffIfMissing(Mob* caster, Mob* target, uint16 spell_id);
 
 	//used for limiting spawns
 	class SpawnLimitRecord { public: uint32 spawngroup_id; uint32 npc_type; };
@@ -596,6 +598,9 @@ private:
 	uint32	tsFirstSpawnOnQueue; // timestamp that the top spawn on the spawnqueue was added, should be 0xFFFFFFFF if queue is empty
 	uint32	NumSpawnsOnQueue;
 	LinkedList<NewSpawn_Struct*> SpawnQueue;
+
+	// per-zone, per-caster payment schedule: key=(caster_entity_id<<16|spell_id), value=next_due_ms
+	std::unordered_map<uint32, uint32> m_passive_upkeep_times;
 
 	std::unordered_map<uint16, Client *> client_list;
 	std::unordered_map<uint16, Mob *> mob_list;

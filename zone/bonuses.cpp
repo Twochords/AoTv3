@@ -3042,6 +3042,15 @@ void Mob::ApplySpellsBonuses(uint16 spell_id, uint8 casterlevel, StatBonuses *ne
 				break;
 			}
 
+			case SpellEffect::MeleeHitFlatAbsorb:
+				new_bonus->MeleeHitFlatAbsorb += effect_value;
+				break;
+
+			case SpellEffect::MeleeHitPctAbsorb:
+				new_bonus->MeleeHitPctAbsorb          += effect_value;
+				new_bonus->MeleeHitPctAbsorbEndurCost += limit_value;
+				break;
+
 
 			case SpellEffect::MeleeThresholdGuard:
 			{
