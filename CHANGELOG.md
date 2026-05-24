@@ -1,3 +1,29 @@
+## [AoTv3] Dranik's Scar Reverse-Progression Rebalance — 2026-05-09
+
+### Reverse-Progression
+
+* Normalized 65 Dranik's Scar NPC entries (IDs 302000–302064) to era-appropriate level caps for Omens of War / GoD reverse-progression tier. Verification: exact_level_matches=65, level_mismatches=0.
+* Cleared `npc_spells_id` (set to 0) for 24 NPCs with spell lists incompatible with reverse-progression tier caps.
+* Cleared `special_abilities` strings for 19 NPCs overriding reverse-progression combat behavior.
+* Rollback backup table preserved in live DB: `npc_types_backup_draniksscar_20260509`.
+
+### Guard Assist
+
+* Added explicit Lua timer-scan guard-assist script for NPC 998038 (An Emberwatch Guard) at `quests/draniksscar/998038.lua`. 2-second periodic scan; assists any player being attacked by a hostile NPC within 80 units.
+* Normalized DB fields for NPC 998038: `aggroradius=60`, `assistradius=80`, `special_abilities=''`, `npc_spells_id=0`.
+
+### SQL
+
+* Added `sql/reverse-progression/draniksscar_npc_normalization.sql` — full normalization script with comments.
+* Added `sql/reverse-progression/draniksscar_rollback.sql` — restore from backup table.
+* Added `sql/reverse-progression/draniksscar_verify.sql` — verification queries.
+
+### Documentation
+
+* Added `docs/draniksscar-reverse-progression.md` — full change record with file table and rollback instructions.
+
+---
+
 ## [23.10.3] 9/16/2025
 
 ### Hotfix
