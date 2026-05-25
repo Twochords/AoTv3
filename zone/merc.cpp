@@ -878,6 +878,7 @@ bool Merc::Process()
 
 	if(tic_timer.Check())
 	{
+		m_procs_fired_this_tick = 0;
 		//6 seconds, or whatever the rule is set to has passed, send this position to everyone to avoid ghosting
 		if (!IsEngaged())
 		{

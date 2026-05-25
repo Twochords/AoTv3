@@ -26,14 +26,14 @@
 			"port": "9081"
 		},
 		"world": {
-			"longname": "New Devbox",
-			"address": "192.168.1.100",
-			"localaddress": "192.168.1.100",
+			"longname": "AoT Devbox",
+			"address": "192.168.0.61",
+			"localaddress": "192.168.0.61",
 			"loginserver1": {
 				"account": "",
 				"password": "",
-				"legacy": 0,
-				"host": "login.projecteq.net",
+				"legacy": "0",
+				"host": "127.0.0.1",
 				"port": "5998"
 			},
 			"tcp": {
@@ -66,8 +66,7 @@
 		},
 		"directories": {
 			"patches": "assets/patches/",
-			"opcodes": "assets/patches/",
-			"plugins": "quests/plugins/"
+			"opcodes": "assets/patches/"
 		}
 	}
 }

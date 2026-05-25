@@ -3422,6 +3422,7 @@ bool Mob::SpellEffect(Mob* caster, uint16 spell_id, float partial, int level_ove
 			case SpellEffect::HPDrainToMana:
 			case SpellEffect::MeleeHitFlatAbsorb:
 			case SpellEffect::MeleeHitPctAbsorb:
+			case SpellEffect::IncreaseProcCap:
 			{
 				break;
 			}

@@ -619,6 +619,7 @@ bool NPC::Process()
 	}
 
 	if (tic_timer.Check()) {
+		m_procs_fired_this_tick = 0;
 		if (m_clear_wearchange_cache_timer.Check()) {
 			m_last_seen_wearchange.clear();
 		}

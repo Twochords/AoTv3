@@ -1,9 +1,63 @@
 # This is a "dev" image for running eqemu in development, also for dev containers
-ARG USERNAME=user-name-goes-here
-ARG USER_UID=1000
-ARG USER_GID=$USER_UID
-
 FROM mcr.microsoft.com/devcontainers/base:debian
-RUN sudo apt update && sudo apt install -y --no-install-recommends build-essential libtool cmake curl debconf-utils git libluabind-dev libsodium-dev liblua5.2-0 liblua5.2-dev libmariadb-dev libssl-dev minizip make mariadb-client locales nano open-vm-tools unzip uuid-dev iputils-ping wget libcurl4-openssl-dev gdb libyaml-cpp-dev ccache ninja-build pv mariadb-server libperl-dev libjson-perl libio-stringy-perl liblua5.1-dev libluabind-dev libboost-dev mariadb-server valgrind telnet libgoogle-perftools-dev google-perftools
 
-USER $USERNAME
+ENV CC=/usr/bin/clang
+ENV CXX=/usr/bin/clang++
+
+RUN sudo apt update && sudo apt install -y --no-install-recommends \
+    autoconf \
+    automake \
+    build-essential \
+    ccache \
+    clang \
+    cmake \
+    curl \
+    debconf-utils \
+    gdb \
+    git \
+    google-perftools \
+    iputils-ping \
+    libboost-dev \
+    libcurl4-openssl-dev \
+    libgoogle-perftools-dev \
+    libio-stringy-perl \
+    libjson-perl \
+    libluabind-dev \
+    liblua5.1-dev \
+    liblua5.2-0 \
+    liblua5.2-dev \
+    libmariadb-dev \
+    libperl-dev \
+    libsodium-dev \
+    libssl-dev \
+    libtool \
+    libyaml-cpp-dev \
+    locales \
+    make \
+    mariadb-client \
+    mariadb-server \
+    minizip \
+    nano \
+    nasm \
+    ninja-build \
+    open-vm-tools \
+    perl \
+    pkg-config \
+    pv \
+    python3 \
+    telnet \
+    unzip \
+    uuid-dev \
+    valgrind \
+    wget
+
+# Go (for building Spire)
+RUN wget -q https://go.dev/dl/go1.26.3.linux-amd64.tar.gz -O /tmp/go.tar.gz \
+    && tar -C /usr/local -xzf /tmp/go.tar.gz \
+    && rm /tmp/go.tar.gz
+
+ENV PATH=$PATH:/usr/local/go/bin
+ENV GOPATH=/home/vscode/go
+ENV PATH=$PATH:$GOPATH/bin
+
+USER vscode

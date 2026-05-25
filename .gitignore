@@ -69,3 +69,12 @@ compile_flags.txt
 # CMake Files
 cmake-build-relwithdebinfo/*
 skill-caps.diff
+
+# AoT: separate VCS / personal projects
+client_mods/
+deploy_scripts/
+
+# akk-stack: track compose + Makefile, ignore live secrets and DB data volume
+akk-stack/.env
+akk-stack/data/
+!akk-stack/Makefile

@@ -1675,6 +1675,7 @@ bool Bot::Process()
 	SpellProcess();
 
 	if (tic_timer.Check()) {
+		m_procs_fired_this_tick = 0;
 
 		// 6 seconds, or whatever the rule is set to has passed, send this position to everyone to avoid ghosting
 		if (!IsEngaged() && !rest_timer.Enabled()) {
@@ -5051,7 +5052,7 @@ float Bot::GetProcChances(float ProcBonus, uint16 hand) {
 	return ProcChance;
 }
 
-int Bot::GetHandToHandDamage(void) {
+int Bot::GetHandToHandDamage(int /*delay*/) {
 	if (RuleB(Combat, UseRevampHandToHand)) {
 		// everyone uses this in the revamp!
 		int skill = GetSkill(EQ::skills::SkillHandtoHand);

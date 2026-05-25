@@ -305,7 +305,7 @@ public:
 	uint16 BotGetSpellPriority(int spellslot) { return AIBot_spells[spellslot].priority; }
 	const std::vector<BotSpells_wIndex>& BotGetSpellsByType(uint16 spell_type) const;
 	float GetProcChances(float ProcBonus, uint16 hand) override;
-	int GetHandToHandDamage(void) override;
+	int GetHandToHandDamage(int delay) override;
 	bool TryFinishingBlow(Mob *defender, int64 &damage) override;
 	void DoRiposte(Mob* defender) override;
 	inline int32 GetATK() { return ATK + itembonuses.ATK + spellbonuses.ATK + ((GetSTR() + GetSkill(EQ::skills::SkillOffense)) * 9 / 10); }

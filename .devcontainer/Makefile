@@ -6,6 +6,23 @@
 # in game, stop loot spam #logs set gmsay 69 0
 NAME := eqemu-server
 
+.PHONY: cmake
+cmake: is-vscode
+	cmake -S . -B build -G Ninja \
+		-DCMAKE_BUILD_TYPE=Debug \
+		-DCMAKE_C_COMPILER_LAUNCHER=ccache \
+		-DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+		-DCMAKE_HAVE_LIBC_PTHREAD=1 \
+		-DEQEMU_BUILD_TESTS=ON \
+		-DEQEMU_BUILD_LOGIN=ON \
+		-DEQEMU_BUILD_LUA=ON \
+		-DEQEMU_BUILD_PERL=ON \
+		-DEQEMU_BUILD_CLIENT_FILES=ON
+
+.PHONY: build
+build: is-vscode
+	cmake --build build --parallel 4
+
 .PHONY: prep
 prep: is-vscode
 	@echo "Preparing build/bin for usage..."
@@ -20,34 +37,26 @@ prep: is-vscode
 
 	@echo "Applying overrides..."
 	@if [ ! -f .devcontainer/override/eqemu_config.json ]; then cp .devcontainer/base/eqemu_config.json .devcontainer/override/eqemu_config.json; fi
-	@if [ -f build/bin/eqemu_config.json ]; then unlink build/bin/eqemu_config.json; fi
-	cd build/bin && ln -s ../../.devcontainer/override/eqemu_config.json eqemu_config.json
+	@rm -rf build/bin/eqemu_config.json
+	cat .devcontainer/override/eqemu_config.json > build/bin/eqemu_config.json
 	@if [ ! -f .devcontainer/override/login.json ]; then cp .devcontainer/base/login.json .devcontainer/override/login.json; fi
-	@if [ -f build/bin/login.json ]; then unlink build/bin/login.json; fi
-	cd build/bin && ln -s ../../.devcontainer/override/login.json login.json
+	@rm -rf build/bin/login.json
+	cat .devcontainer/override/login.json > build/bin/login.json
 
 	@echo "Cloning repositories..."
-	cd .devcontainer/repo && if [ ! -d "quests" ]; then cd ../../.devcontainer/repo/ && git clone https://github.com/ProjectEQ/projecteqquests.git quests; fi
-	cd .devcontainer/repo && if [ ! -d "eqemu-definitions" ]; then cd ../../.devcontainer/repo/ && git clone https://github.com/xackery/eqemu-definitions.git eqemu-definitions; fi
-	cd .devcontainer/repo && if [ ! -d "maps" ]; then cd ../../ && make maps; fi
-	@if [ -d build/bin/quests ]; then unlink build/bin/quests; fi
-	cd build/bin && ln -s ../../.devcontainer/repo/quests quests
-	@if [ -d build/bin/maps ]; then unlink build/bin/maps; fi
-	cd build/bin && ln -s ../../.devcontainer/repo/maps maps
-	@if [ -d build/bin/eqemu-definitions ]; then unlink build/bin/eqemu-definitions; fi
-	cd build/bin && ln -s ../../.devcontainer/repo/eqemu-definitions eqemu-definitions
-	@mkdir -p build/bin/quests/mods
+	@mkdir -p .devcontainer/repo
+	if [ ! -f ".devcontainer/repo/quests/.git/HEAD" ]; then git clone https://github.com/ProjectEQ/projecteqquests.git .devcontainer/repo/quests; fi
+	if [ ! -f ".devcontainer/repo/eqemu-definitions/.git/HEAD" ]; then git clone https://github.com/xackery/eqemu-definitions.git .devcontainer/repo/eqemu-definitions; fi
+	if [ -z "$$(ls -A .devcontainer/repo/maps 2>/dev/null)" ]; then make maps; fi
+	@mkdir -p .devcontainer/repo/quests/mods
 
-	@echo "Applying base links..."
+	@echo "Applying base patches..."
 	cp -R -u -p utils/patches .devcontainer/base/
-	@if [ -d build/bin/assets/patches ]; then unlink build/bin/assets/patches; fi
-	cd build/bin/assets && ln -s ../../../.devcontainer/base/patches patches
-	@if [ -d build/bin/lua_modules ]; then unlink build/bin/lua_modules; fi
-	cd build/bin && ln -s ../../.devcontainer/repo/quests/lua_modules lua_modules
-	@if [ -d build/bin/mods ]; then unlink build/bin/mods; fi
-	cd build/bin && ln -s ../../.devcontainer/repo/quests/mods mods
-	@if [ -d build/bin/plugins ]; then unlink build/bin/plugins; fi
-	cd build/bin && ln -s ../../.devcontainer/repo/quests/plugins plugins
+
+	@echo "Applying build/bin links..."
+	@if [ ! -L build/bin/lua_modules ]; then cd build/bin && ln -s quests/lua_modules lua_modules; fi
+	@if [ ! -L build/bin/plugins ]; then cd build/bin && ln -s quests/plugins plugins; fi
+	@if [ ! -L build/bin/mods ]; then cd build/bin && ln -s quests/mods mods; fi
 
 	@echo "Eqemu is prepared. Edit build/bin/eqemu_config.json to configure."
 
@@ -91,6 +100,7 @@ shared: is-vscode check-mariadb
 # Runs zone binary
 .PHONY: zone
 zone: is-vscode check-mariadb
+	@mkdir -p build/bin/logs/zone/
 	@find build/bin/logs/zone/ -type f -name 'zone*.log' -exec rm -f {} +
 	cd build/bin && ./zone
 

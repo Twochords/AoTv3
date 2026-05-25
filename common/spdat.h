@@ -1593,6 +1593,8 @@ namespace SpellEffect {
 	constexpr int HPDrainToMana      = 528; // AoT DoBuffTic per-tick, base: % of max HP drained from holder, limit: % of max mana restored to holder
 	constexpr int MeleeHitFlatAbsorb = 529; // AoT ReduceDamage per-hit, base: flat damage absorbed per melee hit (no depletion cap)
 	constexpr int MeleeHitPctAbsorb  = 530; // AoT ReduceDamage per-hit, base: % of melee damage reduced, limit: endurance cost per hit (0 = free)
+	constexpr int IncreaseProcCap        = 531; // AoT - flat increase to per-round proc firing cap, stacks across items/spells/AAs
+	constexpr int IncreaseSpellRollOptions = 532; // AoT - flat increase to number of spell options shown on roll
 }
 
 #define DF_Permanent				50

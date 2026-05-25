@@ -204,6 +204,8 @@ int command_init(void)
 		command_add("push", "[Back Push] [Up Push] - Lets you do spell push on an NPC", AccountStatus::GMLeadAdmin, command_push) ||
 		command_add("raidloot", "[All|GroupLeader|RaidLeader|Selected] - Sets your Raid Loot Type if you have permission to do so.", AccountStatus::Player, command_raidloot) ||
 		command_add("randomfeatures", "Temporarily randomizes the Facial Features of your target", AccountStatus::QuestTroupe, command_randomfeatures) ||
+		command_add("choosespell", "[tier] [spell_id] - Confirm a pending spell roll option (outside combat only)", AccountStatus::Player, command_choosespell) ||
+		command_add("rollspell", "[tier] - Roll spell options for the given tier (outside combat only)", AccountStatus::Player, command_rollspell) ||
 		command_add("refreshgroup", "Refreshes Group for you or your player target.", AccountStatus::Player, command_refreshgroup) ||
 		command_add("reload", "Reloads different types of server data globally, use no argument for help menu.", AccountStatus::GMMgmt, command_reload) ||
 		command_add("rq", "Reloads quests (alias of #reload quests).", AccountStatus::GMMgmt, command_reload) ||
@@ -213,6 +215,7 @@ int command_init(void)
 		command_add("resetaa", "[aa|leadership] - Resets a player's AAs or Leadership AAs and refunds spent AAs (not Leadership AAs) to unspent, may disconnect player.", AccountStatus::GMMgmt, command_resetaa) ||
 		command_add("resetaa_timer", "[All|Timer ID] - Command to reset AA cooldown timers for you or your player target.", AccountStatus::GMMgmt, command_resetaa_timer) ||
 		command_add("resetdisc_timer", "[All|Timer ID] - Command to reset discipline timers.", AccountStatus::GMMgmt, command_resetdisc_timer) ||
+		command_add("resetspells", "Clears all AoT spell rolls for you or your target, allowing every tier to be rerolled from scratch", AccountStatus::GMAdmin, command_resetspells) ||
 		command_add("revoke", "[Character Name] [0|1] - Revokes or unrevokes a player's ability to talk in OOC by name (0 = Unrevoke, 1 = Revoke)", AccountStatus::GMMgmt, command_revoke) ||
 		command_add("roambox", "[Remove|Set] [Box Size] [Delay (Milliseconds)] - Remove or set an NPC's roambox size and delay", AccountStatus::GMMgmt, command_roambox) ||
 		command_add("rules", "(subcommand) - Manage server rules", AccountStatus::GMImpossible, command_rules) ||
@@ -764,6 +767,165 @@ void command_apply_shared_memory(Client *c, const Seperator *sep) {
 }
 
 #include "bot_command.h"
+void command_rollspell(Client *c, const Seperator *sep)
+{
+	if (!sep->IsNumber(1)) {
+		c->Message(Chat::White, "Usage: #rollspell [tier]  (tier 1-%d)", RuleI(AoT, SpellIdNPCTierValue));
+		return;
+	}
+
+	if (c->IsEngaged()) {
+		c->Message(Chat::Red, "You cannot reroll spells while in combat.");
+		return;
+	}
+
+	const int tier = Strings::ToInt(sep->arg[1]);
+	const int npc_tier = RuleI(AoT, SpellIdNPCTierValue);
+	if (tier < 1 || tier > npc_tier) {
+		c->Message(Chat::Red, "Tier must be between 1 and %d.", npc_tier);
+		return;
+	}
+
+	const uint32 char_id    = c->CharacterID();
+	const uint8  char_class = c->GetClass();
+	const int    class_bit  = (1 << (char_class - 1));
+
+	// Find current spell for this tier (to exclude it from the new roll if possible)
+	uint16 current_spell_id = 0;
+	{
+		auto results = database.QueryDatabase(
+			fmt::format("SELECT `spell_id` FROM `aot_character_spells` "
+			            "WHERE `char_id`={} AND `tier`={} LIMIT 1",
+			            char_id, tier)
+		);
+		if (results.Success() && results.RowCount() > 0) {
+			auto row = results.begin();
+			current_spell_id = static_cast<uint16>(Strings::ToUnsignedInt(row[0]));
+		}
+	}
+
+	// Pull eligible pool entries for this tier and class, preferring variety
+	auto results = database.QueryDatabase(
+		fmt::format("SELECT `spell_id` FROM `aot_spell_pool` "
+		            "WHERE `tier`={} AND (`class_mask` & {})!=0 AND `enabled`=1 AND `spell_id`!={}",
+		            tier, class_bit, current_spell_id)
+	);
+
+	// Fall back to the full pool (including current) if nothing else is available
+	if (!results.Success() || results.RowCount() == 0) {
+		results = database.QueryDatabase(
+			fmt::format("SELECT `spell_id` FROM `aot_spell_pool` "
+			            "WHERE `tier`={} AND (`class_mask` & {})!=0 AND `enabled`=1",
+			            tier, class_bit)
+		);
+	}
+
+	if (!results.Success() || results.RowCount() == 0) {
+		c->Message(Chat::Red, "No spells are available in the pool for tier %d.", tier);
+		return;
+	}
+
+	// Load all candidates, then Fisher-Yates shuffle and take N
+	std::vector<uint16> candidates;
+	candidates.reserve(results.RowCount());
+	for (auto row = results.begin(); row != results.end(); ++row)
+		candidates.push_back(static_cast<uint16>(Strings::ToUnsignedInt(row[0])));
+
+	for (int i = static_cast<int>(candidates.size()) - 1; i > 0; --i) {
+		int j = zone->random.Int(0, i);
+		std::swap(candidates[i], candidates[j]);
+	}
+
+	const int n_roll = c->GetMaxSpellRollOptions();
+	const int n_options = std::min(n_roll, static_cast<int>(candidates.size()));
+
+	// Clear old pending for this tier and store new options
+	database.QueryDatabase(
+		fmt::format("DELETE FROM `aot_pending_rolls` WHERE `char_id`={} AND `tier`={}",
+		            char_id, tier)
+	);
+	for (int i = 0; i < n_options; ++i) {
+		database.QueryDatabase(
+			fmt::format("INSERT INTO `aot_pending_rolls` (`char_id`,`tier`,`spell_id`) VALUES ({},{},{})",
+			            char_id, tier, candidates[i])
+		);
+	}
+
+	// Build payload: "tier:sp1,sp2,sp3"
+	std::string payload = fmt::format("{}:{}", tier, candidates[0]);
+	for (int i = 1; i < n_options; ++i)
+		payload += fmt::format(",{}", candidates[i]);
+
+	auto outapp = new EQApplicationPacket(OP_AoTRollOptions,
+	                                      static_cast<uint32>(payload.size()) + 1);
+	memcpy(outapp->pBuffer, payload.c_str(), payload.size() + 1);
+	c->QueuePacket(outapp);
+	safe_delete(outapp);
+}
+
+void command_choosespell(Client *c, const Seperator *sep)
+{
+	if (!sep->IsNumber(1) || !sep->IsNumber(2)) {
+		c->Message(Chat::White, "Usage: #choosespell [tier] [spell_id]");
+		return;
+	}
+
+	if (c->IsEngaged()) {
+		c->Message(Chat::Red, "You cannot choose a spell while in combat.");
+		return;
+	}
+
+	const int    tier     = Strings::ToInt(sep->arg[1]);
+	const uint16 spell_id = static_cast<uint16>(Strings::ToUnsignedInt(sep->arg[2]));
+	const uint32 char_id  = c->CharacterID();
+
+	// Validate spell_id is a pending offer for this char+tier
+	auto validate = database.QueryDatabase(
+		fmt::format("SELECT 1 FROM `aot_pending_rolls` "
+		            "WHERE `char_id`={} AND `tier`={} AND `spell_id`={} LIMIT 1",
+		            char_id, tier, spell_id)
+	);
+	if (!validate.Success() || validate.RowCount() == 0) {
+		c->Message(Chat::Red, "That is not a valid pending option for tier %d.", tier);
+		return;
+	}
+
+	// Upsert into aot_character_spells
+	database.QueryDatabase(
+		fmt::format("INSERT INTO `aot_character_spells` (`char_id`,`tier`,`spell_id`) "
+		            "VALUES ({},{},{}) ON DUPLICATE KEY UPDATE `spell_id`=VALUES(`spell_id`)",
+		            char_id, tier, spell_id)
+	);
+
+	// Record in discovered list
+	database.QueryDatabase(
+		fmt::format("INSERT IGNORE INTO `aot_character_discovered` (`char_id`,`spell_id`) VALUES ({},{})",
+		            char_id, spell_id)
+	);
+
+	// Clear all pending options for this tier
+	database.QueryDatabase(
+		fmt::format("DELETE FROM `aot_pending_rolls` WHERE `char_id`={} AND `tier`={}",
+		            char_id, tier)
+	);
+
+	// Mirror to real spellbook
+	c->ScribeSpell(spell_id, tier - 1);
+
+	// Display packed-ID breakdown for debugging
+	const int mastery_shift  = RuleI(AoT, SpellIdMasteryShift);
+	const int tier_shift     = RuleI(AoT, SpellIdTierShift);
+	const int tier_mask      = (1 << RuleI(AoT, SpellIdTierBits)) - 1;
+	const int index_mask     = (1 << RuleI(AoT, SpellIdIndexBits)) - 1;
+	const int rolled_tier    = ((spell_id >> tier_shift) & tier_mask) + 1;
+	const int rolled_index   = spell_id & index_mask;
+	const int rolled_mastery = spell_id >> mastery_shift;
+
+	c->Message(Chat::Spells,
+	           "Chose spell ID %u (tier %d, index %d, mastery %d) for tier slot %d.",
+	           spell_id, rolled_tier, rolled_index, rolled_mastery, tier);
+}
+
 // Function delegate to support the command interface for Bots with the client.
 void command_bot(Client *c, const Seperator *sep)
 {

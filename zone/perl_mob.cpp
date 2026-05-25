@@ -1192,7 +1192,7 @@ int Perl_Mob_GetHaste(Mob* self) // @categories Stats and Attributes
 
 int Perl_Mob_GetHandToHandDamage(Mob* self) // @categories Stats and Attributes
 {
-	return self->GetHandToHandDamage();
+	return self->GetHandToHandDamage(self->GetHandToHandDelay());
 }
 
 bool Perl_Mob_CanThisClassDoubleAttack(Mob* self) // @categories Skills and Recipes

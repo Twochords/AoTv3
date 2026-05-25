@@ -1216,7 +1216,7 @@ int Lua_Mob::GetHaste() {
 
 int Lua_Mob::GetHandToHandDamage() {
 	Lua_Safe_Call_Int();
-	return self->GetHandToHandDamage();
+	return self->GetHandToHandDamage(self->GetHandToHandDelay());
 }
 
 int Lua_Mob::GetHandToHandDelay() {

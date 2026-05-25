@@ -517,6 +517,7 @@ bool Client::Process() {
 			DoStaminaHungerUpdate();
 
 		if (tic_timer.Check() && !dead) {
+			m_procs_fired_this_tick = 0;
 			CalcMaxHP();
 			CalcMaxMana();
 			CalcATK();

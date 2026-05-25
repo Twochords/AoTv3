@@ -3051,6 +3051,13 @@ void Mob::ApplySpellsBonuses(uint16 spell_id, uint8 casterlevel, StatBonuses *ne
 				new_bonus->MeleeHitPctAbsorbEndurCost += limit_value;
 				break;
 
+			case SpellEffect::IncreaseProcCap:
+				new_bonus->ProcCapIncrease += effect_value;
+				break;
+
+			case SpellEffect::IncreaseSpellRollOptions:
+				new_bonus->SpellRollOptions += effect_value;
+				break;
 
 			case SpellEffect::MeleeThresholdGuard:
 			{

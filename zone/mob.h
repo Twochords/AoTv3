@@ -1139,7 +1139,7 @@ public:
 	int GetMobFixedOffenseSkill();
 	int GetMobFixedWeaponSkill();
 	void ApplyDamageTable(DamageHitInfo &hit);
-	virtual int GetHandToHandDamage(void);
+	virtual int GetHandToHandDamage(int delay);
 
 	bool CanThisClassDoubleAttack(void) const;
 	bool CanThisClassTripleAttack() const;
@@ -1515,6 +1515,7 @@ public:
 	void ClearDataBucketCache();
 	bool IsGuildmaster() const;
 	bool IsDestroying() const { return m_destroying; }
+	int  GetMaxSpellRollOptions() const;
 
 protected:
 	void CommonDamage(Mob* other, int64 &damage, const uint16 spell_id, const EQ::skills::SkillType attack_skill, bool &avoidable, const int8 buffslot, const bool iBuffTic, eSpecialAttacks specal = eSpecialAttacks::None);
@@ -1527,6 +1528,7 @@ protected:
 
 	// dynamically set via memory on constructor
 	int8 m_max_procs = 0;
+	int8 m_procs_fired_this_tick = 0;
 
 	virtual bool AI_EngagedCastCheck() { return(false); }
 	virtual bool AI_PursueCastCheck() { return(false); }
@@ -1656,6 +1658,8 @@ protected:
 	void TryCombatProcs(const EQ::ItemInstance* weapon, Mob *on, uint16 hand = EQ::invslot::slotPrimary, const EQ::ItemData* weapon_data = nullptr);
 	void ExecWeaponProc(const EQ::ItemInstance* weapon, uint16 spell_id, Mob *on, int level_override = -1);
 	virtual float GetProcChances(float ProcBonus, uint16 hand = EQ::invslot::slotPrimary);
+	int   GetMaxProcsPerTick() const;
+	bool  TryConsumeProc();
 	virtual float GetDefensiveProcChances(float &ProcBonus, float &ProcChance, uint16 hand = EQ::invslot::slotPrimary, Mob *on = nullptr);
 	virtual float GetSkillProcChances(uint16 ReuseTime, uint16 hand = 0); // hand = MainCharm?
 	uint16 GetWeaponSpeedbyHand(uint16 hand);

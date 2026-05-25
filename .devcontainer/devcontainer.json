@@ -17,7 +17,8 @@
 		"9001:9001/udp"
 	],
 	"forwardPorts": [
-		3306
+		3306,
+		8090
 	],
 	"remoteEnv": {
 		"LOCALWSF": "${localWorkspaceFolder}",
@@ -72,9 +73,17 @@
 		}
 	},
 	"mounts": [
-    "source=${localWorkspaceFolder}/.devcontainer/Makefile,target=/src/Makefile,type=bind,consistency=cached"
+		"source=${localWorkspaceFolder}/.devcontainer/Makefile,target=/src/Makefile,type=bind,consistency=cached",
+		"source=eqemu-server-build,target=/src/build,type=volume",
+		"source=eqemu-vcpkg-buildtrees,target=/src/submodules/vcpkg/buildtrees,type=volume",
+		"source=eqemu-vcpkg-packages,target=/src/submodules/vcpkg/packages,type=volume",
+		"source=${localWorkspaceFolder}/.devcontainer/repo/quests,target=/src/build/bin/quests,type=bind,consistency=cached",
+		"source=${localWorkspaceFolder}/.devcontainer/repo/maps,target=/src/build/bin/maps,type=bind,consistency=cached",
+		"source=${localWorkspaceFolder}/.devcontainer/repo/eqemu-definitions,target=/src/build/bin/eqemu-definitions,type=bind,consistency=cached",
+		"source=${localWorkspaceFolder}/.devcontainer/base/patches,target=/src/build/bin/assets/patches,type=bind,consistency=cached"
 	],
 
+	"postCreateCommand": "sudo chown -R vscode:vscode /src/build /src/submodules/vcpkg/buildtrees /src/submodules/vcpkg/packages",
 	"workspaceFolder": "/src",
 	"workspaceMount": "source=${localWorkspaceFolder},target=/src,type=bind,consistency=cached"
 }

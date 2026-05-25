@@ -1179,6 +1179,23 @@ RULE_INT(EvolvingItems, DelayUponEquipping, 30000, "Delay in ms before an evolvi
 RULE_BOOL(EvolvingItems, DestroyAugmentsOnEvolve, false, "If this is enabled, any augments in an item will be destroyed when the item evolves. Otherwise, send augments to the player via the parcel system (requires that the Parcel System be enabled).")
 RULE_CATEGORY_END()
 
+// AoT custom rules
+// Packed spell ID layout (uint16): [mastery:3][tier:5][index:8]
+// If the RoF2 spell-ID cap (65535) ever needs to be worked around, update these
+// shift/bits values and the aot_spell_pool/aot_character_spells DB tables together.
+RULE_CATEGORY(AoT)
+RULE_INT(AoT, SpellIdMasteryShift, 13,    "Bit offset of the mastery field in the packed AoT spell ID")
+RULE_INT(AoT, SpellIdMasteryBits,   3,    "Width in bits of the mastery field (000=Apprentice; scroll upgrades increment this)")
+RULE_INT(AoT, SpellIdTierShift,     8,    "Bit offset of the tier field in the packed AoT spell ID")
+RULE_INT(AoT, SpellIdTierBits,      5,    "Width in bits of the tier field (stored value = tier-1; stored 31 = NPC-only Tier 32)")
+RULE_INT(AoT, SpellIdIndexShift,    0,    "Bit offset of the spell-index field in the packed AoT spell ID")
+RULE_INT(AoT, SpellIdIndexBits,     8,    "Width in bits of the spell-index field (0-255 per tier)")
+RULE_INT(AoT, SpellIdNPCTierValue, 31,    "Stored tier bits value reserved for NPC-only spells (Tier 32)")
+RULE_INT(AoT, SpellIdClientMaxID,  65535, "Highest spell ID the RoF2 client tolerates; IDs above this crash the client")
+RULE_INT(AoT, MaxProcsPerTick,     6,     "Max total procs (weapon + spell + defensive combined) that can fire per 6-second tick; increased by SPA 531")
+RULE_INT(AoT, SpellRollOptions,    3,     "Number of spell options presented when rolling; increased by SPA 532")
+RULE_CATEGORY_END()
+
 #undef RULE_CATEGORY
 #undef RULE_INT
 #undef RULE_REAL

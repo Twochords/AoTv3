@@ -2586,8 +2586,8 @@ void Mob::DoMeleeSkillAttackDmg(Mob *other, int32 dps_pct, EQ::skills::SkillType
 					delay    = secondary->GetItem()->Delay;
 				} else {
 					skillinuse = EQ::skills::SkillHandtoHand;
-					dmg_stat   = GetHandToHandDamage();
 					delay      = GetHandToHandDelay();
+					dmg_stat   = GetHandToHandDamage(delay);
 				}
 				delay         = std::max(1, delay);
 				weapon_damage = dmg_stat * 10 * dps_pct / delay / 100;
@@ -2632,8 +2632,8 @@ void Mob::DoMeleeSkillAttackDmg(Mob *other, int32 dps_pct, EQ::skills::SkillType
 					dmg_stat = primary->GetItemWeaponDamage(true);
 					delay    = primary->GetItem()->Delay;
 				} else {
-					dmg_stat = GetHandToHandDamage();
 					delay    = GetHandToHandDelay();
+					dmg_stat = GetHandToHandDamage(delay);
 				}
 				delay         = std::max(1, delay);
 				weapon_damage = dmg_stat * 10 * dps_pct / delay / 100;

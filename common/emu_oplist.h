@@ -647,4 +647,5 @@ N(OP_ResetAA),
 N(OP_UnderWorld),
 N(OP_AoTSpellUI),
 N(OP_AoTSpellBook),
+N(OP_AoTRollOptions),
 // mail and chat opcodes located in ../mail_oplist.h

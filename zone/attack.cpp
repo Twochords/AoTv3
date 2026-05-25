@@ -1185,7 +1185,7 @@ int64 Mob::GetWeaponDamage(Mob *against, const EQ::ItemData *weapon_item) {
 			}
 		}
 		else if ((GetClass() == Class::Monk || GetClass() == Class::Beastlord) && GetLevel() >= 30) {
-			dmg = GetHandToHandDamage();
+			dmg = GetHandToHandDamage(GetHandToHandDelay());
 		}
 		else {
 			return 0;
@@ -1198,7 +1198,7 @@ int64 Mob::GetWeaponDamage(Mob *against, const EQ::ItemData *weapon_item) {
 			dmg = dmg <= 0 ? 1 : dmg;
 		}
 		else {
-			dmg = GetHandToHandDamage();
+			dmg = GetHandToHandDamage(GetHandToHandDelay());
 		}
 	}
 
@@ -1318,7 +1318,7 @@ int64 Mob::GetWeaponDamage(Mob *against, const EQ::ItemInstance *weapon_item, in
 
 			if (GetClass() == Class::Monk || GetClass() == Class::Beastlord) {
 				if (MagicGloves || GetLevel() >= 30) {
-					dmg = GetHandToHandDamage();
+					dmg = GetHandToHandDamage(GetHandToHandDelay());
 					if (hate)
 						*hate += dmg;
 				}
@@ -1351,7 +1351,7 @@ int64 Mob::GetWeaponDamage(Mob *against, const EQ::ItemInstance *weapon_item, in
 			}
 		}
 		else {
-			dmg = GetHandToHandDamage();
+			dmg = GetHandToHandDamage(GetHandToHandDelay());
 			if (hate)
 				*hate += dmg;
 		}
@@ -3519,8 +3519,14 @@ uint8 Mob::GetWeaponDamageBonus(const EQ::ItemData *weapon, bool offhand)
 	return 0;
 }
 
-int Mob::GetHandToHandDamage(void)
+int Mob::GetHandToHandDamage(int delay)
 {
+	int ratio = 40;
+	int ratio_per_level = 4;
+	ratio += ratio_per_level * GetLevel();
+	return (delay * ratio) / 100;
+
+
 	if (RuleB(Combat, UseRevampHandToHand)) {
 		// everyone uses this in the revamp!
 		int skill = GetSkill(EQ::skills::SkillHandtoHand);
@@ -3563,64 +3569,14 @@ int Mob::GetHandToHandDamage(void)
 
 int Mob::GetHandToHandDelay(void)
 {
-	if (RuleB(Combat, UseRevampHandToHand)) {
-		// everyone uses this in the revamp!
-		int skill = GetSkill(EQ::skills::SkillHandtoHand);
-		int epic = 0;
-		int iksar = 0;
-		if (IsClient() && CastToClient()->GetItemIDAt(12) == 10652 && GetLevel() > 46)
-			epic = 280;
-		else if (GetRace() == Race::Iksar)
-			iksar = 1;
-		// the delay bonus from the monk epic scales up to a skill of 280
-		if (epic >= skill)
-			epic = skill;
-		return iksar - epic / 21 + 38;
-	}
+	int level = GetLevel();
+	int base_delay = 40;
+	int speed_per_level = 1;
+	int speed_base = 25;
 
-	int delay = 35;
-	static uint8 mnk_hum_delay[] = { 99,
-		35, 35, 35, 35, 35, 35, 35, 35, 35, 35, // 1-10
-		35, 35, 35, 35, 35, 35, 35, 35, 35, 35, // 11-20
-		35, 35, 35, 35, 35, 35, 35, 34, 34, 34, // 21-30
-		34, 33, 33, 33, 33, 32, 32, 32, 32, 31, // 31-40
-		31, 31, 31, 30, 30, 30, 30, 29, 29, 29, // 41-50
-		29, 28, 28, 28, 28, 27, 27, 27, 27, 26, // 51-60
-		24, 22 };                                // 61-62
-	static uint8 mnk_iks_delay[] = { 99,
-		35, 35, 35, 35, 35, 35, 35, 35, 35, 35, // 1-10
-		35, 35, 35, 35, 35, 35, 35, 35, 35, 35, // 11-20
-		35, 35, 35, 35, 35, 35, 35, 35, 35, 34, // 21-30
-		34, 34, 34, 34, 34, 33, 33, 33, 33, 33, // 31-40
-		33, 32, 32, 32, 32, 32, 32, 31, 31, 31, // 41-50
-		31, 31, 31, 30, 30, 30, 30, 30, 30, 29, // 51-60
-		25, 23 };                                // 61-62
-	static uint8 bst_delay[] = { 99,
-		35, 35, 35, 35, 35, 35, 35, 35, 35, 35, // 1-10
-		35, 35, 35, 35, 35, 35, 35, 35, 35, 35, // 11-20
-		35, 35, 35, 35, 35, 35, 35, 35, 34, 34, // 21-30
-		34, 34, 34, 33, 33, 33, 33, 33, 32, 32, // 31-40
-		32, 32, 32, 31, 31, 31, 31, 31, 30, 30, // 41-50
-		30, 30, 30, 29, 29, 29, 29, 29, 28, 28, // 51-60
-		28, 28, 28, 27, 27, 27, 27, 27, 26, 26, // 61-70
-		26, 26, 26 };                            // 71-73
+	int delay = base_delay * speed_base / (speed_base + level * speed_per_level);
 
-	if (GetClass() == Class::Monk) {
-		// Have a look to see if we have epic fists on
-		if (IsClient() && CastToClient()->GetItemIDAt(12) == 10652 && GetLevel() > 50)
-			return 16;
-		int level = GetLevel();
-		if (level > 62)
-			return GetRace() == Race::Iksar ? 21 : 20;
-		return GetRace() == Race::Iksar ? mnk_iks_delay[level] : mnk_hum_delay[level];
-	}
-	else if (GetClass() == Class::Beastlord) {
-		int level = GetLevel();
-		if (level > 73)
-			return 25;
-		return bst_delay[level];
-	}
-	return 35;
+	return delay;
 }
 
 int64 Mob::ReduceDamage(int64 damage)
@@ -4930,10 +4886,6 @@ void Mob::TryDefensiveProc(Mob *on, uint16 hand)
 		float proc_chance, proc_bonus;
 		on->GetDefensiveProcChances(proc_bonus, proc_chance, hand, this);
 
-		if (hand == EQ::invslot::slotSecondary) {
-			proc_chance /= 2;
-		}
-
 		int level_penalty     = 0;
 		int level_diff        = GetLevel() - on->GetLevel();
 		int penalty_level_gap = RuleI(Spells, DefensiveProcPenaltyLevelGap);
@@ -4955,7 +4907,7 @@ void Mob::TryDefensiveProc(Mob *on, uint16 hand)
 			if (IsValidSpell(DefensiveProcs[i].spellID)) {
 				if (!IsProcLimitTimerActive(DefensiveProcs[i].base_spellID, DefensiveProcs[i].proc_reuse_time, ProcType::DEFENSIVE_PROC)) {
 					float chance = proc_chance * (static_cast<float>(DefensiveProcs[i].chance) / 100.0f);
-					if (zone->random.Roll(chance)) {
+					if (zone->random.Roll(chance) && TryConsumeProc()) {
 						ExecWeaponProc(nullptr, DefensiveProcs[i].spellID, on);
 						CheckNumHitsRemaining(NumHit::DefensiveSpellProcs, 0, DefensiveProcs[i].base_spellID);
 						SetProcLimitTimer(DefensiveProcs[i].base_spellID, DefensiveProcs[i].proc_reuse_time, ProcType::DEFENSIVE_PROC);
@@ -4975,7 +4927,7 @@ void Mob::TryDefensiveProc(Mob *on, uint16 hand)
 				if (aa_rank_id) {
 					if (!IsProcLimitTimerActive(-aa_rank_id, aa_proc_reuse_timer, ProcType::DEFENSIVE_PROC)) {
 						float chance = proc_chance * (static_cast<float>(aa_proc_chance) / 100.0f);
-						if (zone->random.Roll(chance) && IsValidSpell(aa_spell_id)) {
+						if (zone->random.Roll(chance) && IsValidSpell(aa_spell_id) && TryConsumeProc()) {
 							ExecWeaponProc(nullptr, aa_spell_id, on);
 							SetProcLimitTimer(-aa_rank_id, aa_proc_reuse_timer, ProcType::DEFENSIVE_PROC);
 						}
@@ -4984,6 +4936,28 @@ void Mob::TryDefensiveProc(Mob *on, uint16 hand)
 			}
 		}
 	}
+}
+
+int Mob::GetMaxProcsPerTick() const {
+	return RuleI(AoT, MaxProcsPerTick) +
+	       itembonuses.ProcCapIncrease +
+	       spellbonuses.ProcCapIncrease +
+	       aabonuses.ProcCapIncrease;
+}
+
+int Mob::GetMaxSpellRollOptions() const {
+	return std::max(1,
+	       RuleI(AoT, SpellRollOptions) +
+	       itembonuses.SpellRollOptions +
+	       spellbonuses.SpellRollOptions +
+	       aabonuses.SpellRollOptions);
+}
+
+bool Mob::TryConsumeProc() {
+	if (m_procs_fired_this_tick >= GetMaxProcsPerTick())
+		return false;
+	++m_procs_fired_this_tick;
+	return true;
 }
 
 void Mob::TryCombatProcs(const EQ::ItemInstance* weapon_g, Mob *on, uint16 hand, const EQ::ItemData* weapon_data) {
@@ -5044,9 +5018,6 @@ void Mob::TryWeaponProc(const EQ::ItemInstance *inst, const EQ::ItemData *weapon
 	ProcBonus += static_cast<float>(itembonuses.ProcChance) / 10.0f; // Combat Effects
 	float ProcChance = GetProcChances(ProcBonus, hand);
 
-	if (hand == EQ::invslot::slotSecondary)
-		ProcChance /= 2;
-
 	// Try innate proc on weapon
 	// We can proc once here, either weapon or one aug
 	bool proced = false; // silly bool to prevent augs from going if weapon does
@@ -5069,8 +5040,10 @@ void Mob::TryWeaponProc(const EQ::ItemInstance *inst, const EQ::ItemData *weapon
 			}
 			else {
 				LogCombat("Attacking weapon ([{}]) successfully procing spell [{}] ([{}] percent chance)", weapon->Name, weapon->Proc.Effect, WPC * 100);
-				ExecWeaponProc(inst, weapon->Proc.Effect, on);
-				proced = true;
+				if (TryConsumeProc()) {
+					ExecWeaponProc(inst, weapon->Proc.Effect, on);
+					proced = true;
+				}
 			}
 		}
 	}
@@ -5102,7 +5075,7 @@ void Mob::TryWeaponProc(const EQ::ItemInstance *inst, const EQ::ItemData *weapon
 							MessageString(Chat::Red, PROC_TOOLOW);
 						}
 					}
-					else {
+					else if (TryConsumeProc()) {
 						ExecWeaponProc(aug_i, aug->Proc.Effect, on);
 						if (RuleB(Combat, OneProcPerWeapon))
 							break;
@@ -5132,10 +5105,6 @@ void Mob::TrySpellProc(const EQ::ItemInstance *inst, const EQ::ItemData *weapon,
 
 	if (weapon){
 		skillinuse = GetSkillByItemType(weapon->ItemType);
-	}
-
-	if (hand == EQ::invslot::slotSecondary) {
-		ProcChance /= 2;
 	}
 
 	bool rangedattk = false;
@@ -5168,8 +5137,10 @@ void Mob::TrySpellProc(const EQ::ItemInstance *inst, const EQ::ItemData *weapon,
 			// Perma procs (Not used for AA, they are handled below)
 			if (IsValidSpell(PermaProcs[i].spellID)) {
 				if (zone->random.Roll(PermaProcs[i].chance)) { // TODO: Do these get spell bonus?
-					LogCombat("Permanent proc [{}] procing spell [{}] ([{}] percent chance)", i, PermaProcs[i].spellID, PermaProcs[i].chance);
-					ExecWeaponProc(nullptr, PermaProcs[i].spellID, on);
+					if (TryConsumeProc()) {
+						LogCombat("Permanent proc [{}] procing spell [{}] ([{}] percent chance)", i, PermaProcs[i].spellID, PermaProcs[i].chance);
+						ExecWeaponProc(nullptr, PermaProcs[i].spellID, on);
+					}
 				}
 				else {
 					LogCombat("Permanent proc [{}] failed to proc [{}] ([{}] percent chance)", i, PermaProcs[i].spellID, PermaProcs[i].chance);
@@ -5188,11 +5159,13 @@ void Mob::TrySpellProc(const EQ::ItemInstance *inst, const EQ::ItemData *weapon,
 				if (passed_skill_limit_check && !IsProcLimitTimerActive(SpellProcs[i].base_spellID, SpellProcs[i].proc_reuse_time, ProcType::MELEE_PROC)) {
 					float chance = ProcChance * (static_cast<float>(SpellProcs[i].chance) / 100.0f);
 					if (zone->random.Roll(chance)) {
-						LogCombat("Spell proc [{}] procing spell [{}] ([{}] percent chance)", i, SpellProcs[i].spellID, chance);
-						SendBeginCast(SpellProcs[i].spellID, 0);
-						ExecWeaponProc(nullptr, SpellProcs[i].spellID, on, SpellProcs[i].level_override);
-						SetProcLimitTimer(SpellProcs[i].base_spellID, SpellProcs[i].proc_reuse_time, ProcType::MELEE_PROC);
-						CheckNumHitsRemaining(NumHit::OffensiveSpellProcs, 0, SpellProcs[i].base_spellID);
+						if (TryConsumeProc()) {
+							LogCombat("Spell proc [{}] procing spell [{}] ([{}] percent chance)", i, SpellProcs[i].spellID, chance);
+							SendBeginCast(SpellProcs[i].spellID, 0);
+							ExecWeaponProc(nullptr, SpellProcs[i].spellID, on, SpellProcs[i].level_override);
+							SetProcLimitTimer(SpellProcs[i].base_spellID, SpellProcs[i].proc_reuse_time, ProcType::MELEE_PROC);
+							CheckNumHitsRemaining(NumHit::OffensiveSpellProcs, 0, SpellProcs[i].base_spellID);
+						}
 					}
 					else {
 						LogCombat("Spell proc [{}] failed to proc [{}] ([{}] percent chance)", i, SpellProcs[i].spellID, chance);
@@ -5209,10 +5182,12 @@ void Mob::TrySpellProc(const EQ::ItemInstance *inst, const EQ::ItemData *weapon,
 				if (passed_skill_limit_check && !IsProcLimitTimerActive(RangedProcs[i].base_spellID, RangedProcs[i].proc_reuse_time, ProcType::RANGED_PROC)) {
 					float chance = ProcChance * (static_cast<float>(RangedProcs[i].chance) / 100.0f);
 					if (zone->random.Roll(chance)) {
-						LogCombat("Ranged proc [{}] procing spell [{}] ([{}] percent chance)", i, RangedProcs[i].spellID, chance);
-						ExecWeaponProc(nullptr, RangedProcs[i].spellID, on);
-						CheckNumHitsRemaining(NumHit::OffensiveSpellProcs, 0, RangedProcs[i].base_spellID);
-						SetProcLimitTimer(RangedProcs[i].base_spellID, RangedProcs[i].proc_reuse_time, ProcType::RANGED_PROC);
+						if (TryConsumeProc()) {
+							LogCombat("Ranged proc [{}] procing spell [{}] ([{}] percent chance)", i, RangedProcs[i].spellID, chance);
+							ExecWeaponProc(nullptr, RangedProcs[i].spellID, on);
+							CheckNumHitsRemaining(NumHit::OffensiveSpellProcs, 0, RangedProcs[i].base_spellID);
+							SetProcLimitTimer(RangedProcs[i].base_spellID, RangedProcs[i].proc_reuse_time, ProcType::RANGED_PROC);
+						}
 					}
 					else {
 						LogCombat("Ranged proc [{}] failed to proc [{}] ([{}] percent chance)", i, RangedProcs[i].spellID, chance);
@@ -5254,7 +5229,7 @@ void Mob::TrySpellProc(const EQ::ItemInstance *inst, const EQ::ItemData *weapon,
 
 				if (passed_skill_limit_check && !IsProcLimitTimerActive(-aa_rank_id, aa_proc_reuse_timer, proc_type)) {
 					float chance = ProcChance * (static_cast<float>(aa_proc_chance) / 100.0f);
-					if (zone->random.Roll(chance) && IsValidSpell(aa_spell_id)) {
+					if (zone->random.Roll(chance) && IsValidSpell(aa_spell_id) && TryConsumeProc()) {
 						LogCombat("AA proc [{}] procing spell [{}] ([{}] percent chance)", aa_rank_id, aa_spell_id, chance);
 						ExecWeaponProc(nullptr, aa_spell_id, on);
 						SetProcLimitTimer(-aa_rank_id, aa_proc_reuse_timer, proc_type);
@@ -5272,7 +5247,7 @@ void Mob::TrySpellProc(const EQ::ItemInstance *inst, const EQ::ItemData *weapon,
 		float chance = (one_shot) ? 100.0f : ProcChance * (static_cast<float>(SpellProcs[poison_slot].chance) / 100.0f);
 		uint16 spell_id = SpellProcs[poison_slot].spellID;
 
-		if (zone->random.Roll(chance)) {
+		if (zone->random.Roll(chance) && TryConsumeProc()) {
 			LogCombat("Poison proc [{}] procing spell [{}] ([{}] percent chance)", poison_slot, spell_id, chance);
 			SendBeginCast(spell_id, 0);
 			ExecWeaponProc(nullptr, spell_id, on, SpellProcs[poison_slot].level_override);
