@@ -127,10 +127,15 @@ queryserv: is-vscode check-mariadb
 	@find build/bin/logs/ -type f -name 'query_server*.log' -exec rm -f {} +
 	cd build/bin && ./queryserv
 
+# make save — saves database changes, commits and pushes to git.
+#             Run before git pull or container rebuild.
 .PHONY: save
 save: is-vscode check-mariadb
 	python3 database/save.py
 
+# make load — pulls latest from git, rebuilds peq from PEQ archive + AoT content,
+#             clones peq -> peq_ref as the new save baseline.
+#             WARNING: destroys unsaved database changes. Run make save first.
 .PHONY: load
 load: is-vscode check-mariadb
 	python3 database/load.py

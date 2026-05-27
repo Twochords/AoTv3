@@ -49,9 +49,11 @@ def main():
     print()
     print("This will:")
     print("  1. Pull latest from git (hard reset to origin/master)")
-    print("  2. Drop and recreate peq from PEQ archive")
-    print("  3. Apply all AoT content from database/")
-    print("  4. Clone peq -> peq_ref (new save baseline)")
+    print("  2. Reset peq database")
+    print("  3. Load PEQ archive")
+    print("  4. Create custom table schemas")
+    print("  5. Apply AoT content from database/")
+    print("  6. Clone peq -> peq_ref (new save baseline)")
     print()
     print("All unsaved peq changes will be LOST.")
     print("Run 'make save' first if you have changes to keep.")
@@ -62,17 +64,17 @@ def main():
         print("Aborted.")
         sys.exit(0)
 
-    print("\n[1/5] Pulling latest from git...")
+    print("\n[1/6] Pulling latest from git...")
     run(f'git -C "{REPO_ROOT}" fetch origin')
     run(f'git -C "{REPO_ROOT}" reset --hard origin/master')
 
-    print("\n[2/5] Resetting peq database...")
+    print("\n[2/6] Resetting peq database...")
     run("sudo mariadb -e 'DROP DATABASE IF EXISTS peq;'")
     run("sudo mariadb -e 'CREATE DATABASE peq;'")
     run("sudo mariadb -e \"CREATE USER IF NOT EXISTS 'peq'@'127.0.0.1' IDENTIFIED BY 'peqpass';\"")
     run("sudo mariadb -e \"GRANT ALL PRIVILEGES ON *.* TO 'peq'@'127.0.0.1';\"")
 
-    print("\n[3/5] Loading PEQ archive...")
+    print("\n[3/6] Loading PEQ archive...")
     if not os.path.isdir(CACHE_DIR):
         print(f"\n[ERROR] PEQ dump not found at {CACHE_DIR}")
         print("        Run 'make inject-mariadb' once to download and cache the PEQ archive.")
@@ -85,10 +87,10 @@ def main():
         else:
             print(f"  [SKIP] {sql_file} not found")
 
-    print("\n[4/5] Applying AoT content...")
+    print("\n[5/6] Applying AoT content...")
     run(f'make -C "{SCRIPT_DIR}" inject')
 
-    print("\n[5/5] Cloning peq -> peq_ref...")
+    print("\n[6/6] Cloning peq -> peq_ref...")
     run("sudo mariadb -e 'DROP DATABASE IF EXISTS peq_ref;'")
     run("sudo mariadb -e 'CREATE DATABASE peq_ref;'")
     run(
