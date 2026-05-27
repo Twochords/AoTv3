@@ -51,9 +51,9 @@ def main():
     print("  1. Pull latest from git (hard reset to origin/master)")
     print("  2. Reset peq database")
     print("  3. Load PEQ archive")
-    print("  4. Create custom table schemas")
-    print("  5. Apply AoT content from database/")
-    print("  6. Clone peq -> peq_ref (new save baseline)")
+    print("  4. Clone peq -> peq_ref (vanilla baseline for save)")
+    print("  5. Create custom table schemas")
+    print("  6. Apply AoT content from database/")
     print()
     print("All unsaved peq changes will be LOST.")
     print("Run 'make save' first if you have changes to keep.")
@@ -87,10 +87,7 @@ def main():
         else:
             print(f"  [SKIP] {sql_file} not found")
 
-    print("\n[5/6] Applying AoT content...")
-    run(f'make -C "{SCRIPT_DIR}" inject')
-
-    print("\n[6/6] Cloning peq -> peq_ref...")
+    print("\n[4/6] Cloning peq -> peq_ref (vanilla baseline)...")
     run("sudo mariadb -e 'DROP DATABASE IF EXISTS peq_ref;'")
     run("sudo mariadb -e 'CREATE DATABASE peq_ref;'")
     run(
@@ -98,9 +95,24 @@ def main():
         f"--no-tablespaces peq | sudo mariadb peq_ref"
     )
 
+    print("\n[5/6] Creating custom table schemas...")
+    schema_files = sorted([
+        os.path.join(SCRIPT_DIR, d, 'schema.sql')
+        for d in os.listdir(SCRIPT_DIR)
+        if os.path.isfile(os.path.join(SCRIPT_DIR, d, 'schema.sql'))
+    ])
+    if schema_files:
+        for schema in schema_files:
+            run(f'sudo mariadb --database peq < "{schema}"')
+    else:
+        print("  No schema.sql files found, skipping.")
+
+    print("\n[6/6] Applying AoT content...")
+    run(f'make -C "{SCRIPT_DIR}" inject')
+
     print("\n" + "=" * 60)
     print("  Load complete.")
-    print("  peq and peq_ref are now in sync.")
+    print("  peq_ref = vanilla PEQ baseline.")
     print("  Run 'make save' after making changes to commit them.")
     print("=" * 60)
 
