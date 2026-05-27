@@ -34,6 +34,8 @@
 	"customizations": {
 		"vscode": {
 			"extensions": [
+				"ms-python.python",
+				"ms-python.debugpy",
 				"ms-vscode.cpptools-extension-pack",
 				"vilicvane.sensitive-replace",
 				"maattdd.gitless",

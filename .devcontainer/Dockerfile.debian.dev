@@ -45,6 +45,8 @@ RUN sudo apt update && sudo apt install -y --no-install-recommends \
     pkg-config \
     pv \
     python3 \
+    python3-pip \
+    python3-pymysql \
     telnet \
     unzip \
     uuid-dev \
@@ -59,5 +61,7 @@ RUN wget -q https://go.dev/dl/go1.26.3.linux-amd64.tar.gz -O /tmp/go.tar.gz \
 ENV PATH=$PATH:/usr/local/go/bin
 ENV GOPATH=/home/vscode/go
 ENV PATH=$PATH:$GOPATH/bin
+
+RUN pip3 install --break-system-packages debugpy
 
 USER vscode
