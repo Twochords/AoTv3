@@ -265,13 +265,14 @@ def main():
 
     print(f"\n{len(changed)} table(s) changed. Committing to git...")
 
-    git_run(['pull', '--rebase'])
     git_run(['add', 'database/'])
 
     summary = f"save: {len(changed)} table(s): {', '.join(changed)}"
     if not git_run(['commit', '-m', summary]):
         print("  Nothing to commit (already up to date).")
         return
+
+    git_run(['pull', '--rebase'])
 
     if not git_run(['push']):
         print("  [WARN] Push failed. You may need to pull --rebase and push manually.")
