@@ -85,9 +85,33 @@ def get_columns(cursor, db, table):
     return [row['COLUMN_NAME'] for row in cursor.fetchall()]
 
 
-def fetch_all(cursor, table):
-    cursor.execute(f"SELECT * FROM `{table}`")
+def fetch_upsert_rows(cursor, table):
+    # Rows in live that have no identical counterpart in ref — server-side diff
+    cursor.execute(
+        f"SELECT * FROM `{DB_LIVE}`.`{table}` "
+        f"EXCEPT "
+        f"SELECT * FROM `{DB_REF}`.`{table}`"
+    )
     return cursor.fetchall()
+
+
+def fetch_deleted_pks(cursor, table, pk_cols):
+    # PKs in ref that no longer exist in live
+    if len(pk_cols) == 1:
+        col = pk_cols[0]
+        cursor.execute(
+            f"SELECT `{col}` FROM `{DB_REF}`.`{table}` "
+            f"WHERE `{col}` NOT IN (SELECT `{col}` FROM `{DB_LIVE}`.`{table}`)"
+        )
+    else:
+        join_cond = ' AND '.join(f'r.`{c}` = l.`{c}`' for c in pk_cols)
+        sel_cols  = ', '.join(f'r.`{c}`' for c in pk_cols)
+        cursor.execute(
+            f"SELECT {sel_cols} FROM `{DB_REF}`.`{table}` r "
+            f"WHERE NOT EXISTS "
+            f"(SELECT 1 FROM `{DB_LIVE}`.`{table}` l WHERE {join_cond})"
+        )
+    return [tuple(row[c] for c in pk_cols) for row in cursor.fetchall()]
 
 
 def escape_val(val):
@@ -155,34 +179,26 @@ def discover_tables():
 
 
 def save_table(table, conn_live, conn_ref, pk_cfg):
-    cur_live = conn_live.cursor()
-    cur_ref  = conn_ref.cursor() if conn_ref else None
+    cur = conn_live.cursor()
 
-    pk_cols, source = resolve_pks(cur_live, table, pk_cfg)
+    pk_cols, source = resolve_pks(cur, table, pk_cfg)
     tag = '[config]' if source == 'config' else '[schema]'
     print(f"  {tag} {table}: pk={', '.join(pk_cols)}")
 
-    columns = get_columns(cur_live, DB_LIVE, table)
+    columns = get_columns(cur, DB_LIVE, table)
 
-    live_rows = {pk_tuple(r, pk_cols): r for r in fetch_all(cur_live, table)}
-
-    ref_rows = {}
-    if cur_ref:
+    if conn_ref:
         try:
-            ref_rows = {pk_tuple(r, pk_cols): r for r in fetch_all(cur_ref, table)}
-        except Exception:
-            pass  # table may not exist in ref yet
-
-    replaced = []
-    deleted  = []
-
-    for pk, row in live_rows.items():
-        if pk not in ref_rows or row != ref_rows[pk]:
-            replaced.append(row)
-
-    for pk in ref_rows:
-        if pk not in live_rows:
-            deleted.append(pk)
+            replaced = fetch_upsert_rows(cur, table)
+            deleted  = fetch_deleted_pks(cur, table, pk_cols)
+        except Exception as e:
+            print(f"  {table}: ref query failed ({e}), skipping")
+            return False
+    else:
+        # Bootstrap: no ref, treat all live rows as new
+        cur.execute(f"SELECT * FROM `{DB_LIVE}`.`{table}`")
+        replaced = list(cur.fetchall())
+        deleted  = []
 
     if not replaced and not deleted:
         print(f"  {table}: no changes")
