@@ -15,6 +15,9 @@
 	You should have received a copy of the GNU General Public License
 	along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
+// AoT: disable automatic level+delay damage bonus — additive damage requires explicit opportunity cost
+#define EQEMU_NO_WEAPON_DAMAGE_BONUS
+
 #include <algorithm>
 #include "common/data_verification.h"
 #include "common/eq_constants.h"
@@ -1136,8 +1139,11 @@ void Mob::MeleeMitigation(Mob *attacker, DamageHitInfo &hit, ExtraAttackOptions 
 		defender->Message(Chat::Yellow, "%s's %s was deflected by your armor!", attacker->GetName(), atk_name);
 		hit.damage_done = 0;
 	} else {
-		// +0.5 for rounding, min to 1 dmg
-		hit.damage_done = std::max(1, static_cast<int>(max_hit * (1.0 - rolled_mit) + 0.5));
+		// Ceiling rounding: small AC values that reduce by < 1 damage point are ignored,
+		// making low AC effectively no mitigation until it's large enough to absorb a full point.
+		double dmg_val = max_hit * (1.0 - rolled_mit);
+		int dmg_int    = static_cast<int>(dmg_val);
+		hit.damage_done = std::max(1, dmg_int + (dmg_val > static_cast<double>(dmg_int) ? 1 : 0));
 	}
 
 	Log(Logs::Detail, Logs::Attack, "ac %d vs offense %d. base %d max_hit %.1f mit %.3f damage %d",
@@ -1390,13 +1396,42 @@ int64 Mob::GetWeaponDamage(Mob *against, const EQ::ItemInstance *weapon_item, in
 	return std::max((int64)0, dmg);
 }
 
-int64 Mob::DoDamageCaps(int64 base_damage)
+int64 Mob::DoDamageCaps(int64 base_damage, const EQ::ItemInstance* weapon)
 {
-	// this is based on a client function that caps melee base_damage
 	auto level = GetLevel();
 	auto stop_level = RuleI(Combat, LevelToStopDamageCaps);
 	if (stop_level && stop_level <= level)
 		return base_damage;
+
+	int weapon_delay;
+	bool is_2h = false;
+
+	if (weapon && weapon->GetItem()) {
+		weapon_delay = weapon->GetItem()->Delay;
+		is_2h = weapon->GetItem()->IsType2HWeapon();
+	} else {
+		weapon_delay = GetHandToHandDelay();
+	}
+
+	if (weapon_delay < 1)
+		weapon_delay = 1;
+
+	int base_pct    = RuleI(AoT, DamageCapBaseDelayPct);
+	int level_pct   = RuleI(AoT, DamageCapLevelPctPerLevel);
+	int twohnd_pct  = RuleI(AoT, DamageCapTwoHandBonusPct);
+
+	int64 cap = static_cast<int64>(weapon_delay) * (base_pct + level_pct * static_cast<int>(level)) / 100;
+	if (is_2h)
+		cap = cap * (100 + twohnd_pct) / 100;
+
+	return std::min(cap, base_damage);
+}
+
+// Legacy level-tiered cap formula — superseded by delay-based formula above.
+// Kept for reference only; never called. Remove if it rots.
+#if 0
+static int64 _DoDamageCaps_legacy(int level, int player_class)
+{
 	int cap = 0;
 	if (level >= 125) {
 		cap = 7 * level;
@@ -1411,7 +1446,7 @@ int64 Mob::DoDamageCaps(int64 base_damage)
 		cap = 4 * level;
 	}
 	else if (level >= 40) {
-		switch (GetClass()) {
+		switch (player_class) {
 		case Class::Cleric:
 		case Class::Druid:
 		case Class::Shaman:
@@ -1429,7 +1464,7 @@ int64 Mob::DoDamageCaps(int64 base_damage)
 		}
 	}
 	else if (level >= 30) {
-		switch (GetClass()) {
+		switch (player_class) {
 		case Class::Cleric:
 		case Class::Druid:
 		case Class::Shaman:
@@ -1503,6 +1538,7 @@ int64 Mob::DoDamageCaps(int64 base_damage)
 
 	return std::min((int64)cap, base_damage);
 }
+#endif
 
 // other is the defender, this is the attacker
 //SYNC WITH: tune.cpp, mob.h TuneDoAttack
@@ -1677,10 +1713,21 @@ bool Mob::Attack(Mob* other, int Hand, bool bRiposte, bool IsStrikethrough, bool
 	//if weapon damage > 0 then we know we can hit the target with this weapon
 	//otherwise we cannot and we set the damage to -5 later on
 	if (my_hit.base_damage > 0) {
+		// AoT: flat per-hit weapon damage bonus, gated on endurance (Minor Fortify Attack)
+		if (IsClient() && spellbonuses.WeaponDamageFlatBonus > 0) {
+			Client *fc = CastToClient();
+			int32 endurCost = spellbonuses.WeaponDamageFlatBonusEndurCost;
+			if (endurCost <= 0 || fc->GetEndurance() >= endurCost) {
+				my_hit.base_damage += spellbonuses.WeaponDamageFlatBonus;
+				if (endurCost > 0)
+					fc->SetEndurance(fc->GetEndurance() - endurCost);
+			}
+		}
+
 		// if we revamp this function be more general, we will have to make sure this isn't
 		// executed for anything BUT normal melee damage weapons from auto attack
 		if (Hand == EQ::invslot::slotPrimary || Hand == EQ::invslot::slotSecondary)
-			my_hit.base_damage = DoDamageCaps(my_hit.base_damage);
+			my_hit.base_damage = DoDamageCaps(my_hit.base_damage, weapon);
 		auto shield_inc = spellbonuses.ShieldEquipDmgMod + itembonuses.ShieldEquipDmgMod + aabonuses.ShieldEquipDmgMod;
 		if (shield_inc > 0 && HasShieldEquipped() && Hand == EQ::invslot::slotPrimary) {
 			my_hit.base_damage = my_hit.base_damage * (100 + shield_inc) / 100;

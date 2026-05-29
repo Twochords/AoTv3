@@ -458,6 +458,8 @@ struct StatBonuses {
 	int32	MeleeHitPctAbsorbEndurCost;		// SPA 530: endurance cost per hit gating MeleeHitPctAbsorb (0 = always applies)
 	int32   ProcCapIncrease;                // SPA 531: flat increase to per-round proc firing cap
 	int32   SpellRollOptions;              // SPA 532: flat increase to spell roll option count
+	int32   WeaponDamageFlatBonus;         // SPA 533: flat weapon damage added per hit when endurance is available
+	int32   WeaponDamageFlatBonusEndurCost; // SPA 533: endurance cost per hit gating WeaponDamageFlatBonus
 	uint32	MeleeThresholdGuard[3];				// 0 = Mitigation value 1 = Buff Slot 2 = Min damage to trigger.
 	uint32	SpellThresholdGuard[3];				// 0 = Mitigation value 1 = Buff Slot 2 = Min damage to trigger.
 	uint32	MitigateSpellRune[4];				// 0 = Mitigation value 1 = Buff Slot 2 = Max mitigation per spell 3 = Rune Amt

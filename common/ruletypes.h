@@ -1194,6 +1194,9 @@ RULE_INT(AoT, SpellIdNPCTierValue, 31,    "Stored tier bits value reserved for N
 RULE_INT(AoT, SpellIdClientMaxID,  65535, "Highest spell ID the RoF2 client tolerates; IDs above this crash the client")
 RULE_INT(AoT, MaxProcsPerTick,     6,     "Max total procs (weapon + spell + defensive combined) that can fire per 6-second tick; increased by SPA 531")
 RULE_INT(AoT, SpellRollOptions,    3,     "Number of spell options presented when rolling; increased by SPA 532")
+RULE_INT(AoT, DamageCapBaseDelayPct,    100, "Base damage cap as a percent of weapon delay (100 = 100% of delay)")
+RULE_INT(AoT, DamageCapLevelPctPerLevel, 10, "Additional cap percent of weapon delay added per character level (10 = +10% per level)")
+RULE_INT(AoT, DamageCapTwoHandBonusPct,  80, "Additional percent bonus to the damage cap for two-handed weapons (80 = +80%, so 180% of 1H cap)")
 RULE_CATEGORY_END()
 
 #undef RULE_CATEGORY

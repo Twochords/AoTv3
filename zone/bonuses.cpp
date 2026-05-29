@@ -3059,6 +3059,11 @@ void Mob::ApplySpellsBonuses(uint16 spell_id, uint8 casterlevel, StatBonuses *ne
 				new_bonus->SpellRollOptions += effect_value;
 				break;
 
+			case SpellEffect::WeaponDamageFlatEndurGated:
+				new_bonus->WeaponDamageFlatBonus          += effect_value;
+				new_bonus->WeaponDamageFlatBonusEndurCost += limit_value;
+				break;
+
 			case SpellEffect::MeleeThresholdGuard:
 			{
 				if (new_bonus->MeleeThresholdGuard[SBIndex::THRESHOLDGUARD_MITIGATION_PERCENT] < effect_value){

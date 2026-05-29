@@ -1595,6 +1595,7 @@ namespace SpellEffect {
 	constexpr int MeleeHitPctAbsorb  = 530; // AoT ReduceDamage per-hit, base: % of melee damage reduced, limit: endurance cost per hit (0 = free)
 	constexpr int IncreaseProcCap        = 531; // AoT - flat increase to per-round proc firing cap, stacks across items/spells/AAs
 	constexpr int IncreaseSpellRollOptions = 532; // AoT - flat increase to number of spell options shown on roll
+	constexpr int WeaponDamageFlatEndurGated = 533; // AoT - flat weapon damage bonus per hit, gated on endurance (base: flat dmg bonus, limit: endurance cost per hit)
 }
 
 #define DF_Permanent				50
