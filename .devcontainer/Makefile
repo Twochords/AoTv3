@@ -36,12 +36,12 @@ prep: is-vscode
 	@mkdir -p build/bin/assets
 
 	@echo "Applying overrides..."
-	@if [ ! -f .devcontainer/override/eqemu_config.json ]; then cp .devcontainer/base/eqemu_config.json .devcontainer/override/eqemu_config.json; fi
+	@if [ ! -f .devcontainer/override/eqemu_config.json ]; then cp .devcontainer/base/eqemu_config.json .devcontainer/override/eqemu_config.json 2>/dev/null || true; fi
 	@rm -rf build/bin/eqemu_config.json
-	cat .devcontainer/override/eqemu_config.json > build/bin/eqemu_config.json
-	@if [ ! -f .devcontainer/override/login.json ]; then cp .devcontainer/base/login.json .devcontainer/override/login.json; fi
+	@cat .devcontainer/override/eqemu_config.json > build/bin/eqemu_config.json 2>/dev/null || { echo "Warning: override/eqemu_config.json unreadable (bind mount issue), using base"; cp .devcontainer/base/eqemu_config.json build/bin/eqemu_config.json; }
+	@if [ ! -f .devcontainer/override/login.json ]; then cp .devcontainer/base/login.json .devcontainer/override/login.json 2>/dev/null || true; fi
 	@rm -rf build/bin/login.json
-	cat .devcontainer/override/login.json > build/bin/login.json
+	@cat .devcontainer/override/login.json > build/bin/login.json 2>/dev/null || { echo "Warning: override/login.json unreadable (bind mount issue), using base"; cp .devcontainer/base/login.json build/bin/login.json; }
 
 	@echo "Cloning repositories..."
 	@mkdir -p .devcontainer/repo

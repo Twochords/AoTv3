@@ -420,7 +420,7 @@ void QuestManager::selfcast(uint16 spell_id)
 {
 	QuestManagerCurrentQuestVars();
 
-	if (initiator) {
+	if (initiator && IsValidSpell(spell_id)) {
 		initiator->SpellFinished(
 			spell_id,
 			initiator,

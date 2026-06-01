@@ -670,6 +670,7 @@ target_link_libraries(gm_commands_zone PRIVATE common)
 target_include_directories(gm_commands_zone PRIVATE ..)
 
 set_target_properties(gm_commands_zone PROPERTIES UNITY_BUILD ON UNITY_BUILD_BATCH_SIZE 32)
+set_source_files_properties(command.cpp PROPERTIES SKIP_UNITY_BUILD_INCLUSION TRUE)
 set_property(TARGET gm_commands_zone PROPERTY FOLDER libraries)
 
 add_executable(zone ${zone_sources} ${zone_headers})

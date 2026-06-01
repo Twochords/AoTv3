@@ -1764,6 +1764,7 @@ bool Mob::Attack(Mob* other, int Hand, bool bRiposte, bool IsStrikethrough, bool
 			hate += ucDamageBonus;
 		}
 #endif
+		int ucDamageBonus = 0;
 		//Live AA - Sinister Strikes *Adds weapon damage bonus to offhand weapon.
 		if (Hand == EQ::invslot::slotSecondary &&
 			(

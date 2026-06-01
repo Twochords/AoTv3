@@ -36,6 +36,7 @@ prep: is-vscode
 	@if [ ! -f .devcontainer/override/eqemu_config.json ]; then cp .devcontainer/base/eqemu_config.json .devcontainer/override/eqemu_config.json; fi
 	@rm -rf build/bin/eqemu_config.json
 	cat .devcontainer/override/eqemu_config.json > build/bin/eqemu_config.json
+	cat .devcontainer/override/eqemu_config.json > build/eqemu_config.json
 	@if [ ! -f .devcontainer/override/login.json ]; then cp .devcontainer/base/login.json .devcontainer/override/login.json; fi
 	@rm -rf build/bin/login.json
 	cat .devcontainer/override/login.json > build/bin/login.json
@@ -109,7 +110,7 @@ world: is-vscode check-mariadb
 
 .PHONY: spire
 spire: is-vscode check-mariadb
-	cd build/bin && ./spire
+	cd build && bin/spire
 
 .PHONY: build-spire
 build-spire: is-vscode

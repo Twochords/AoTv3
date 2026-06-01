@@ -1,0 +1,31 @@
+================================================================================
+AoTv3 Future Tasks / Deferred Work
+Notes written by Claude for Claude. Not build artifacts.
+================================================================================
+
+--------------------------------------------------------------------------------
+BUG: Client crash on camp-out
+--------------------------------------------------------------------------------
+Status: Open — started after memorization implementation, 2026-06-01.
+
+Client crashes when the player camps out. Happens regardless of whether
+the spell book window has ever been opened. Likely related to the vtable
+hooks installed on pSpellBookWnd (SpellBook_Activate_Hook / SpellBook_Show_Hook)
+or pCSWNewVftable not being safely cleaned up during zone/camp teardown.
+Investigate CleanUI_Detour and AoT_CancelGemWait ordering vs. client teardown.
+
+Files: client_mods/eq-core-dll-main/src/MQ2CleanUI.cpp (CleanUI_Detour),
+       client_mods/eq-core-dll-main/src/AoT_Spell_Book.cpp (destructor?)
+
+--------------------------------------------------------------------------------
+UI: Spell book details box — dead space and stale information
+--------------------------------------------------------------------------------
+Status: Needs design pass — reported 2026-06-01.
+
+The details panel in the AoT spell book has too much dead space and displays
+information that needs adjustment. No specific redesign spec yet — needs
+review of what is currently shown vs. what is useful.
+
+File: client_mods/eq-core-dll-main/src/AoT_Spell_Book.cpp (details rendering)
+
+--------------------------------------------------------------------------------

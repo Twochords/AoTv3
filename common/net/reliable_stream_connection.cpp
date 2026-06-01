@@ -459,6 +459,10 @@ void EQ::Net::ReliableStreamConnection::ProcessPacket(Packet &p)
 
 	if (PacketCanBeEncoded(p)) {
 		if (!ValidateCRC(p)) {
+			LogError(
+				"[CRC FAIL] endpoint [{}] stream_opcode [{:#04x}] len [{}] crc_bytes [{}]",
+				m_endpoint, p.Length() >= 2 ? (uint8_t)p.GetInt8(1) : 0, p.Length(), m_crc_bytes
+			);
 			if (m_owner->m_on_error_message) {
 				m_owner->m_on_error_message(fmt::format("Tossed packet that failed CRC of type {0:#x}", p.Length() >= 2 ? p.GetInt8(1) : 0));
 			}

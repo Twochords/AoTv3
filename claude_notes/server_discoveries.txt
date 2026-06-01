@@ -1,0 +1,56 @@
+================================================================================
+AoTv3 Server Discoveries
+Non-obvious things about EQEmu zone code, packet handling, and DB patterns.
+================================================================================
+
+--------------------------------------------------------------------------------
+Client::MemSpell is the complete memorization chain
+--------------------------------------------------------------------------------
+zone/spells.cpp — Client::MemSpell(uint16 spell_id, int slot, bool update_client)
+Does everything in one call:
+  - Sets m_pp.mem_spells[slot] = spell_id
+  - Saves to DB via database.SaveCharacterMemorizedSpell(...)
+  - Sends OP_MemorizeSpell packet back to client (fills the gem on screen)
+Do not manually build or send OP_MemorizeSpell — just call MemSpell.
+
+--------------------------------------------------------------------------------
+OP_MemorizeSpell handler checks HasSpellScribed before calling MemSpell
+--------------------------------------------------------------------------------
+zone/client_process.cpp OPMemorizeSpell handler:
+  checks HasSpellScribed(m->spell_id) before calling MemSpell.
+AoT's custom OP_AoTMemorizeSpell handler bypasses this and calls MemSpell
+directly, skipping the scribed check. This is intentional — the AoT spell book
+manages what the player can memorize independently of the scribe system.
+
+--------------------------------------------------------------------------------
+QuestManager::selfcast has no IsValidSpell guard
+--------------------------------------------------------------------------------
+zone/questmgr.cpp QuestManager::selfcast() accesses spells[spell_id].resist_difficulty
+directly before passing it to SpellFinished. If the spell ID doesn't exist in the
+loaded spell table, SpellFinished crashes the zone (confirmed crash at questmgr.cpp:430
+with spell_id=2049 which had been deleted from spells_new).
+Fix is in place: added IsValidSpell(spell_id) guard. Any future quest selfcast() call
+with a nonexistent spell will now silently no-op instead of crashing the zone.
+Pattern to watch: any quest::selfcast call referencing a custom AoT spell ID will
+crash if that spell is later deleted from spells_new without updating the quest script.
+
+--------------------------------------------------------------------------------
+save.py tracks data diffs only — schema changes need manual ALTER TABLE
+--------------------------------------------------------------------------------
+The database/save.py system compares live peq vs peq_ref baseline and emits
+REPLACE INTO / DELETE SQL for changed rows. It does NOT track DDL (column adds,
+renames, drops). If a column is renamed in C++ queries, the live table column
+must be migrated by running ALTER TABLE manually via docker exec.
+Confirmed: aot_pending_rolls and aot_character_spells had column `tier` in the
+live DB while all C++ code was updated to use `level` — rolling silently failed
+because every INSERT/SELECT referenced a nonexistent column name.
+Pattern: after any column rename in command.cpp / client_packet.cpp queries, also
+run ALTER TABLE ... CHANGE `old` `new` ... on the live DB before testing.
+
+--------------------------------------------------------------------------------
+Strings::ToUnsignedInt for parsing uint32 from command args
+--------------------------------------------------------------------------------
+When a command arg needs to be treated as uint32 (e.g. spell IDs which can be
+large), use Strings::ToUnsignedInt(sep->arg[n]) cast to uint32, not ToInt.
+ToInt returns signed int32 and will mishandle large spell IDs near 0x7FFFFFFF.
+

@@ -1,0 +1,109 @@
+================================================================================
+AoTv3 Client Discoveries
+Non-obvious things about the Titanium client, eq-core-dll, and MQ2 infrastructure.
+================================================================================
+
+--------------------------------------------------------------------------------
+CSpellBookWnd::MemorizeSet is a dead end — checks spellbook visibility
+--------------------------------------------------------------------------------
+MemorizeSet calls CanStartMemming() which checks IsReallyVisible() on the native
+spellbook window. Since AoT permanently no-ops the spellbook Show hook, the window
+is never visible and MemorizeSet silently does nothing every time.
+Do not use MemorizeSet. The correct approach is OP_AoTMemorizeSpell (server-side).
+
+--------------------------------------------------------------------------------
+Client→server custom packet send API (eq-core-dll)
+--------------------------------------------------------------------------------
+To send a custom AoT packet from client to server:
+
+  AoT_SendRawPacket(uint16_t opcode, const void* data, size_t dataSize)
+    declared in AoT_AutoLoot.h
+    defined in AoT_AutoLoot.cpp — wraps SendLootPkt()
+
+  SendLootPkt() builds the wire buffer:
+    buf[0..1] = opcode as 2-byte little-endian
+    buf[2..]  = payload bytes
+    calls SendMessage_Trampoline(gLootCon, gSendUnk, gSendChannel,
+                                 buf, total, gSendA6, gSendA7)
+
+  gLootCon / gSendUnk / gSendChannel / gSendA6 / gSendA7 are captured
+  passively by CaptureLootSendContext() which hooks SendMessage_Detour and
+  records the args from the first outgoing packet. Valid after any packet is sent.
+
+--------------------------------------------------------------------------------
+AoT custom opcode wire values
+--------------------------------------------------------------------------------
+AoT opcodes live in .devcontainer/base/patches/patch_RoF2.conf only.
+They are NOT in patch_Titanium.conf.
+Current assignments (server EmuOpcode → wire value):
+  OP_AoTSpellUI            = 0x1964  (server→client: initialization payload, triggers hooks.Init)
+  OP_AoTSpellBook          = 0x1965  (server→client: triggers PopulateSpellList on open)
+  OP_AoTRollOptions        = 0x1966  (server→client: roll choices "level:sp1,sp2,sp3")
+  OP_AoTPendingRolls       = 0x1967  (server→client: pending roll restore, same format as RollOptions)
+  OP_AoTDiscovered         = 0x1968  (server→client: discovered sync "P:sp1,...|D:sp3,...")
+  OP_AoTMemorizeSpell      = 0x1969  (client→server: {uint32 spell_id, uint8 gem_slot})
+  OP_AoTSyncPendingRolls   = 0x196A  (client→server, zero payload, triggers pending roll sync)
+  OP_AoTSyncDiscovered     = 0x196B  (client→server, zero payload, triggers discovered sync)
+
+Wire values are STABLE — only the EmuOpcode names changed (renamed during spell roll refactor).
+Client HandleOpcode() dispatches by decimal equivalent: 6500=SpellUI, 6501=Book,
+6502=RollOptions, 6503=PendingRolls, 6504=Discovered.
+
+To add a new opcode: add N(OP_AoTXxx) to common/emu_oplist.h, then add
+OP_AoTXxx=0x196C (next value) to patch_RoF2.conf.
+
+--------------------------------------------------------------------------------
+CSidlScreenWnd::GetChildItem takes PCHAR in Titanium, not CXStr
+--------------------------------------------------------------------------------
+The EQLIB_OBJECT macro patches the function to a specific binary address.
+The Titanium binary's GetChildItem at 0x85CFD0 expects PCHAR.
+Calling with CXStr corrupts the stack and crashes.
+Call as: ((CSidlScreenWnd*)pWnd)->GetChildItem(name) where name is char*.
+
+--------------------------------------------------------------------------------
+Vtable hooking — per-instance copy, not shared vtable modification
+--------------------------------------------------------------------------------
+To hook virtual functions on one specific window without affecting all windows
+of that type:
+  1. Copy pWnd->pvfTable to a new CSIDLWNDVFTABLE struct (heap alloc)
+  2. Replace the slots you want in the new struct
+  3. Point pWnd->pvfTable at the new struct
+Restore by pointing pvfTable back at the original on cleanup.
+Modifying the shared vtable directly would affect every window of that class.
+
+--------------------------------------------------------------------------------
+CastSpellWnd WndNotification hook signature (__fastcall)
+--------------------------------------------------------------------------------
+EQ virtual functions use __fastcall. WndNotification at vtable slot 0x088:
+  static int __fastcall Hook(void* thisptr, void* /*edx*/,
+                             CXWnd* pWnd, unsigned int msg, void* data)
+The edx parameter is a dummy — __fastcall passes ECX=this, EDX=unused second
+register. It must appear in the signature or the compiler misaligns the args.
+
+--------------------------------------------------------------------------------
+SpellBook Activate hook — suppress pattern for internal Show() calls
+--------------------------------------------------------------------------------
+Any code that internally calls ShowWindow() on pSpellBookWnd will fire the
+Activate hook at vtable slot 0x090. Without a guard this causes the AoT window
+to toggle unexpectedly mid-operation.
+Pattern: use a one-shot bool flag set immediately before the triggering call,
+checked and cleared at the top of the hook.
+Note: g_aotSuppressNextActivate was removed (2026-06-01) — nothing ever set it.
+If this pattern is needed again, declare a static bool in MQ2CleanUI.cpp, set it
+before the triggering Show() call, and check+clear it at the top of
+SpellBook_Activate_Hook.
+
+--------------------------------------------------------------------------------
+printf vs WriteChatf for crash diagnosis
+--------------------------------------------------------------------------------
+WriteChatf requires the client renderer to flush before the message appears.
+In a crash the renderer halts first — messages are lost.
+printf to stdout works if a console is attached (debugMode or AllocConsole).
+For crash diagnosis always use printf, not WriteChatf.
+
+--------------------------------------------------------------------------------
+Gem child window names on CCastSpellWnd
+--------------------------------------------------------------------------------
+CSPW_Spell0 through CSPW_Spell7 — confirmed in:
+  client_mods/uifiles/default/EQUI_CastSpellWnd.xml
+Only 8 gem slots are named/interactable despite NUM_SPELL_GEMS = 12.

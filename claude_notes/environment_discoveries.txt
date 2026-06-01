@@ -1,0 +1,81 @@
+================================================================================
+AoTv3 Environment Discoveries
+Docker, devcontainer, build system, and toolchain quirks.
+================================================================================
+
+--------------------------------------------------------------------------------
+Docker VirtioFS stale inode — file visible to ls but unreadable by compiler
+--------------------------------------------------------------------------------
+Symptom: `ls -la /src/zone/file.cpp` shows the file; `cat` returns
+"No such file or directory"; compiler reports "error reading '...': No such
+file or directory".
+
+Cause: VirtioFS (Docker Desktop on Windows) caches inodes internally. A file
+that was recently written or replaced on the Windows host can end up with a
+stale inode reference in the Linux container — the directory entry exists but
+the data is unreachable.
+
+Fixes in order of preference:
+  1. Restart Docker Desktop — resets the VirtioFS daemon and all inode mappings.
+     Existing container and database state are preserved (not a rebuild).
+  2. Rebuild container (Dev Containers: Rebuild Container) — destroys container
+     state including the MariaDB database. Avoid unless restart fails.
+
+Copy-delete-rename from Windows does NOT fix it — VirtioFS picks up the new
+inode eventually but not reliably without a daemon restart.
+
+--------------------------------------------------------------------------------
+gm_commands_zone Unity build — command.cpp must skip Unity inclusion
+--------------------------------------------------------------------------------
+zone/CMakeLists.txt builds gm_commands_zone as a static library with Unity
+builds enabled (UNITY_BUILD ON, UNITY_BUILD_BATCH_SIZE 32). command.cpp is
+in gm_command_sources and gets batched into a unity_N_cxx.cxx file.
+
+The unity_N_cxx.cxx file contains absolute-path #includes like:
+  #include "/src/zone/command.cpp"
+
+When VirtioFS has a stale inode on command.cpp, the compiler cannot open it
+via this #include even though ls shows the file. The fix is to exclude
+command.cpp from Unity batching so it compiles as a standalone TU:
+
+  set_source_files_properties(command.cpp PROPERTIES SKIP_UNITY_BUILD_INCLUSION TRUE)
+
+This line is in zone/CMakeLists.txt after set_target_properties(gm_commands_zone).
+Leave it in place — removing it re-exposes the inode fragility.
+
+Side effect: command.cpp compiled standalone loses transitive header pollution
+from earlier Unity batch files. command.h uses std::map but did not include
+<map> — this was masked by Unity pollution and became a build error when
+compiled standalone. Fix applied: #include <map> added to zone/command.h.
+
+--------------------------------------------------------------------------------
+make cmake vs make build
+--------------------------------------------------------------------------------
+Both targets are defined in GNUmakefile (and .devcontainer/Makefile):
+  make cmake  — runs CMake configure; regenerates Ninja build files and Unity
+                batch files. Required after any CMakeLists.txt change.
+  make build  — runs cmake --build build --parallel 4. Compiles changed files.
+
+After editing CMakeLists.txt always run make cmake before make build.
+After editing only source/header files, make build alone is sufficient.
+
+The is-vscode guard in both Makefiles requires REMOTE_CONTAINERS env var to be
+set — these targets only work from inside the devcontainer terminal.
+
+--------------------------------------------------------------------------------
+Finding actual build errors buried in warning output
+--------------------------------------------------------------------------------
+The build generates ~200+ pre-existing -Winconsistent-missing-override warnings
+from client.h, bot.h, corpse.h, etc. These flood the output and hide real errors.
+
+Useful commands:
+  make build 2>&1 | grep "FAILED"
+    — shows which compilation unit failed
+
+  cmake --build build --parallel 1 --target gm_commands_zone 2>&1 | tail -30
+    — single-threaded build of one target; error appears just before FAILED line
+
+  make build 2>&1 | grep ": error:"
+    — catches standard clang errors (file:line:col: error: message)
+    — misses driver-level errors like "error reading '...': No such file"
+    — use grep "^error:" or grep -i "error" as fallback

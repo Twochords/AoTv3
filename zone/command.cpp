@@ -770,19 +770,25 @@ void command_apply_shared_memory(Client *c, const Seperator *sep) {
 void command_rollspell(Client *c, const Seperator *sep)
 {
 	if (!sep->IsNumber(1)) {
-		c->Message(Chat::White, "Usage: #rollspell [tier]  (tier 1-%d)", RuleI(AoT, SpellIdNPCTierValue));
+		c->Message(Chat::White, "Usage: #rollspell [level]  (the level slot you want to fill)");
 		return;
 	}
 
 	if (c->IsEngaged()) {
-		c->Message(Chat::Red, "You cannot reroll spells while in combat.");
+		c->Message(Chat::Red, "You cannot roll spells while in combat.");
 		return;
 	}
 
-	const int tier = Strings::ToInt(sep->arg[1]);
+	const int level    = Strings::ToInt(sep->arg[1]);
+	const int tier     = (level - 1) / 5 + 1;  // derive pool tier from level
 	const int npc_tier = RuleI(AoT, SpellIdNPCTierValue);
-	if (tier < 1 || tier > npc_tier) {
-		c->Message(Chat::Red, "Tier must be between 1 and %d.", npc_tier);
+
+	if (level < 1 || level > (int)c->GetLevel()) {
+		c->Message(Chat::Red, "Invalid level slot.");
+		return;
+	}
+	if (tier > npc_tier) {
+		c->Message(Chat::Red, "No spell pool exists for tier %d.", tier);
 		return;
 	}
 
@@ -790,28 +796,29 @@ void command_rollspell(Client *c, const Seperator *sep)
 	const uint8  char_class = c->GetClass();
 	const int    class_bit  = (1 << (char_class - 1));
 
-	// Find current spell for this tier (to exclude it from the new roll if possible)
-	uint16 current_spell_id = 0;
+	// Reject if the player already has an unanswered pending roll for this level slot
 	{
-		auto results = database.QueryDatabase(
-			fmt::format("SELECT `spell_id` FROM `aot_character_spells` "
-			            "WHERE `char_id`={} AND `tier`={} LIMIT 1",
-			            char_id, tier)
+		auto pending = database.QueryDatabase(
+			fmt::format("SELECT 1 FROM `aot_pending_rolls` WHERE `char_id`={} AND `level`={} LIMIT 1",
+			            char_id, level)
 		);
-		if (results.Success() && results.RowCount() > 0) {
-			auto row = results.begin();
-			current_spell_id = static_cast<uint16>(Strings::ToUnsignedInt(row[0]));
+		if (pending.Success() && pending.RowCount() > 0) {
+			c->Message(Chat::Red, "You already have a pending spell choice for level %d. Open your spell book and choose.", level);
+			return;
 		}
 	}
 
-	// Pull eligible pool entries for this tier and class, preferring variety
+	// Pull eligible pool entries for this tier, excluding spells the character already owns
 	auto results = database.QueryDatabase(
 		fmt::format("SELECT `spell_id` FROM `aot_spell_pool` "
-		            "WHERE `tier`={} AND (`class_mask` & {})!=0 AND `enabled`=1 AND `spell_id`!={}",
-		            tier, class_bit, current_spell_id)
+		            "WHERE `tier`={} AND (`class_mask` & {})!=0 AND `enabled`=1 "
+		            "AND `spell_id` NOT IN ("
+		            "  SELECT `spell_id` FROM `aot_character_spells` WHERE `char_id`={}"
+		            ")",
+		            tier, class_bit, char_id)
 	);
 
-	// Fall back to the full pool (including current) if nothing else is available
+	// Fall back to full pool if the player owns everything in it
 	if (!results.Success() || results.RowCount() == 0) {
 		results = database.QueryDatabase(
 			fmt::format("SELECT `spell_id` FROM `aot_spell_pool` "
@@ -825,7 +832,7 @@ void command_rollspell(Client *c, const Seperator *sep)
 		return;
 	}
 
-	// Load all candidates, then Fisher-Yates shuffle and take N
+	// Fisher-Yates shuffle, take N options
 	std::vector<uint16> candidates;
 	candidates.reserve(results.RowCount());
 	for (auto row = results.begin(); row != results.end(); ++row)
@@ -836,23 +843,28 @@ void command_rollspell(Client *c, const Seperator *sep)
 		std::swap(candidates[i], candidates[j]);
 	}
 
-	const int n_roll = c->GetMaxSpellRollOptions();
+	const int n_roll    = c->GetMaxSpellRollOptions();
 	const int n_options = std::min(n_roll, static_cast<int>(candidates.size()));
 
-	// Clear old pending for this tier and store new options
+	// Store pending options keyed by level slot
 	database.QueryDatabase(
-		fmt::format("DELETE FROM `aot_pending_rolls` WHERE `char_id`={} AND `tier`={}",
-		            char_id, tier)
+		fmt::format("DELETE FROM `aot_pending_rolls` WHERE `char_id`={} AND `level`={}",
+		            char_id, level)
 	);
 	for (int i = 0; i < n_options; ++i) {
 		database.QueryDatabase(
-			fmt::format("INSERT INTO `aot_pending_rolls` (`char_id`,`tier`,`spell_id`) VALUES ({},{},{})",
-			            char_id, tier, candidates[i])
+			fmt::format("INSERT INTO `aot_pending_rolls` (`char_id`,`level`,`spell_id`) VALUES ({},{},{})",
+			            char_id, level, candidates[i])
+		);
+		// All rolled options are revealed to the player, so mark them discovered now
+		database.QueryDatabase(
+			fmt::format("INSERT IGNORE INTO `aot_character_discovered` (`char_id`,`spell_id`) VALUES ({},{})",
+			            char_id, candidates[i])
 		);
 	}
 
-	// Build payload: "tier:sp1,sp2,sp3"
-	std::string payload = fmt::format("{}:{}", tier, candidates[0]);
+	// Build payload: "level:sp1,sp2,sp3"
+	std::string payload = fmt::format("{}:{}", level, candidates[0]);
 	for (int i = 1; i < n_options; ++i)
 		payload += fmt::format(",{}", candidates[i]);
 
@@ -875,26 +887,26 @@ void command_choosespell(Client *c, const Seperator *sep)
 		return;
 	}
 
-	const int    tier     = Strings::ToInt(sep->arg[1]);
+	const int    level    = Strings::ToInt(sep->arg[1]);
 	const uint16 spell_id = static_cast<uint16>(Strings::ToUnsignedInt(sep->arg[2]));
 	const uint32 char_id  = c->CharacterID();
 
-	// Validate spell_id is a pending offer for this char+tier
+	// Validate spell_id is a pending offer for this char+level
 	auto validate = database.QueryDatabase(
 		fmt::format("SELECT 1 FROM `aot_pending_rolls` "
-		            "WHERE `char_id`={} AND `tier`={} AND `spell_id`={} LIMIT 1",
-		            char_id, tier, spell_id)
+		            "WHERE `char_id`={} AND `level`={} AND `spell_id`={} LIMIT 1",
+		            char_id, level, spell_id)
 	);
 	if (!validate.Success() || validate.RowCount() == 0) {
-		c->Message(Chat::Red, "That is not a valid pending option for tier %d.", tier);
+		c->Message(Chat::Red, "That is not a valid pending option for level %d.", level);
 		return;
 	}
 
-	// Upsert into aot_character_spells
+	// Upsert into aot_character_spells keyed by level
 	database.QueryDatabase(
-		fmt::format("INSERT INTO `aot_character_spells` (`char_id`,`tier`,`spell_id`) "
+		fmt::format("INSERT INTO `aot_character_spells` (`char_id`,`level`,`spell_id`) "
 		            "VALUES ({},{},{}) ON DUPLICATE KEY UPDATE `spell_id`=VALUES(`spell_id`)",
-		            char_id, tier, spell_id)
+		            char_id, level, spell_id)
 	);
 
 	// Record in discovered list
@@ -903,14 +915,14 @@ void command_choosespell(Client *c, const Seperator *sep)
 		            char_id, spell_id)
 	);
 
-	// Clear all pending options for this tier
+	// Clear pending options for this level slot
 	database.QueryDatabase(
-		fmt::format("DELETE FROM `aot_pending_rolls` WHERE `char_id`={} AND `tier`={}",
-		            char_id, tier)
+		fmt::format("DELETE FROM `aot_pending_rolls` WHERE `char_id`={} AND `level`={}",
+		            char_id, level)
 	);
 
-	// Mirror to real spellbook
-	c->ScribeSpell(spell_id, tier - 1);
+	// Scribe to the level's spellbook slot (0-indexed)
+	c->ScribeSpell(spell_id, level - 1);
 
 	// Display packed-ID breakdown for debugging
 	const int mastery_shift  = RuleI(AoT, SpellIdMasteryShift);
@@ -922,8 +934,8 @@ void command_choosespell(Client *c, const Seperator *sep)
 	const int rolled_mastery = spell_id >> mastery_shift;
 
 	c->Message(Chat::Spells,
-	           "Chose spell ID %u (tier %d, index %d, mastery %d) for tier slot %d.",
-	           spell_id, rolled_tier, rolled_index, rolled_mastery, tier);
+	           "Chose spell ID %u (tier %d, index %d, mastery %d) for level slot %d.",
+	           spell_id, rolled_tier, rolled_index, rolled_mastery, level);
 }
 
 // Function delegate to support the command interface for Bots with the client.

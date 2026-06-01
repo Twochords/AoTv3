@@ -416,6 +416,9 @@ void MapOpcodes()
 	ConnectedOpcodes[OP_ZoneChange] = &Client::Handle_OP_ZoneChange;
 	ConnectedOpcodes[OP_ResetAA] = &Client::Handle_OP_ResetAA;
 	ConnectedOpcodes[OP_UnderWorld] = &Client::Handle_OP_UnderWorld;
+	ConnectedOpcodes[OP_AoTMemorizeSpell]      = &Client::Handle_OP_AoTMemorizeSpell;
+	ConnectedOpcodes[OP_AoTSyncPendingRolls]   = &Client::Handle_OP_AoTSyncPendingRolls;
+	ConnectedOpcodes[OP_AoTSyncDiscovered]      = &Client::Handle_OP_AoTSyncDiscovered;
 
 	// shared tasks
 	ConnectedOpcodes[OP_SharedTaskRemovePlayer]   = &Client::Handle_OP_SharedTaskRemovePlayer;
@@ -17500,4 +17503,94 @@ void Client::SyncWorldPositionsToClient(bool ignore_idle)
 	if (ignore_idle && reset_idle) {
 		m_is_idle = false;
 	}
+}
+
+void Client::Handle_OP_AoTMemorizeSpell(const EQApplicationPacket *app)
+{
+	if (app->size != sizeof(AoTMemorizeSpell_Struct)) {
+		LogDebug("Size mismatch in OP_AoTMemorizeSpell, expected {}, got [{}]",
+		         sizeof(AoTMemorizeSpell_Struct), app->size);
+		return;
+	}
+	auto *m = (AoTMemorizeSpell_Struct *)app->pBuffer;
+	if (m->gem_slot >= EQ::spells::SPELL_GEM_COUNT) return;
+	if (!IsValidSpell(m->spell_id)) return;
+	MemSpell(m->spell_id, m->gem_slot);
+}
+
+void Client::Handle_OP_AoTSyncPendingRolls(const EQApplicationPacket *app)
+{
+	const uint32 char_id = CharacterID();
+
+	auto results = database.QueryDatabase(
+		fmt::format("SELECT `level`, `spell_id` FROM `aot_pending_rolls` "
+		            "WHERE `char_id`={} ORDER BY `level`, `spell_id`",
+		            char_id)
+	);
+	if (!results.Success() || results.RowCount() == 0)
+		return;
+
+	std::map<int, std::vector<uint16_t>> by_level;
+	for (auto row = results.begin(); row != results.end(); ++row) {
+		int      level    = Strings::ToInt(row[0]);
+		uint16_t spell_id = static_cast<uint16_t>(Strings::ToInt(row[1]));
+		by_level[level].push_back(spell_id);
+	}
+
+	for (auto& [level, spells] : by_level) {
+		std::string payload = fmt::format("{}:{}", level, spells[0]);
+		for (size_t i = 1; i < spells.size(); ++i)
+			payload += fmt::format(",{}", spells[i]);
+
+		auto outapp = new EQApplicationPacket(OP_AoTPendingRolls,
+		                                      static_cast<uint32>(payload.size()) + 1);
+		memcpy(outapp->pBuffer, payload.c_str(), payload.size() + 1);
+		QueuePacket(outapp);
+		safe_delete(outapp);
+	}
+}
+
+void Client::Handle_OP_AoTSyncDiscovered(const EQApplicationPacket *app)
+{
+	const uint32 char_id   = CharacterID();
+	const int    level     = static_cast<int>(GetLevel());
+	const int    max_tier  = (level - 1) / 5 + 1;
+	const int    class_bit = 1 << (GetClass() - 1);
+
+	auto pool_results = database.QueryDatabase(
+		fmt::format("SELECT `spell_id` FROM `aot_spell_pool` "
+		            "WHERE `enabled`=1 AND (`class_mask` & {})!=0 AND `tier`<={} "
+		            "ORDER BY `tier`, `spell_id`",
+		            class_bit, max_tier)
+	);
+
+	auto disc_results = database.QueryDatabase(
+		fmt::format("SELECT `spell_id` FROM `aot_character_discovered` "
+		            "WHERE `char_id`={} ORDER BY `spell_id`",
+		            char_id)
+	);
+
+	std::string pool_part, disc_part;
+
+	if (pool_results.Success()) {
+		for (auto row = pool_results.begin(); row != pool_results.end(); ++row) {
+			if (!pool_part.empty()) pool_part += ',';
+			pool_part += row[0];
+		}
+	}
+
+	if (disc_results.Success()) {
+		for (auto row = disc_results.begin(); row != disc_results.end(); ++row) {
+			if (!disc_part.empty()) disc_part += ',';
+			disc_part += row[0];
+		}
+	}
+
+	std::string payload = "P:" + pool_part + "|D:" + disc_part;
+
+	auto outapp = new EQApplicationPacket(OP_AoTDiscovered,
+	                                      static_cast<uint32>(payload.size()) + 1);
+	memcpy(outapp->pBuffer, payload.c_str(), payload.size() + 1);
+	QueuePacket(outapp);
+	safe_delete(outapp);
 }

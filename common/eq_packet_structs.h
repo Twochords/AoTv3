@@ -6376,6 +6376,12 @@ struct UnderWorld {
 	/* 16 */
 };
 
+struct AoTMemorizeSpell_Struct {
+	/* 00 */	uint32 spell_id;
+	/* 04 */	uint8  gem_slot;
+	/* 05 */
+};
+
 enum BazaarTraderBarterActions {
 	TraderOff                    = 0,
 	TraderOn                     = 1,

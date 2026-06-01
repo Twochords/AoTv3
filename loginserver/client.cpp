@@ -119,6 +119,11 @@ void Client::HandleSessionReady(const char *data, unsigned int size)
 
 	m_connection->QueuePacket(outapp);
 	delete outapp;
+
+	// Titanium client waits for OP_EnterChat before sending OP_Login credentials
+	auto *enterapp = new EQApplicationPacket(OP_EnterChat, 0);
+	m_connection->QueuePacket(enterapp);
+	delete enterapp;
 }
 
 void Client::HandleLogin(const char *data, unsigned int size)
