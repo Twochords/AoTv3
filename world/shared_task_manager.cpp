@@ -1206,7 +1206,7 @@ void SharedTaskManager::LoadDynamicZoneTemplate(SharedTask* s)
 		auto it = dynamic_zone_manager.GetTemplates().find(task.dz_template_id);
 		if (it != dynamic_zone_manager.GetTemplates().end())
 		{
-			DynamicZone dz(DynamicZoneType::Mission);
+			DynamicZone dz(DynamicZoneType::Expedition);
 			dz.LoadTemplate(it->second);
 			dz.SetMinPlayers(task.min_players);
 			dz.SetMaxPlayers(task.max_players);
@@ -1804,6 +1804,9 @@ void SharedTaskManager::HandleCompletedTask(SharedTask* s)
 	RecordSharedTaskCompletion(s);
 
 	AddReplayTimers(s);
+
+	// Terminate immediately on next process tick rather than after the live 2-minute countdown.
+	s->terminate_timer.Start(1);
 }
 
 void SharedTaskManager::StartTerminateTimer(SharedTask* s)

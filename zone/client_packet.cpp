@@ -13302,7 +13302,14 @@ void Client::Handle_OP_RecipesFavorite(const EQApplicationPacket *app)
 	std::string containers;
 	uint32 combineObjectSlots;
 	if (tsf->some_id == 0) {
-		containers += StringFormat(" = %u ", tsf->object_type); // world combiner so no item number
+		// world combiner — include both the object type AND the object's item ID so
+		// custom world forges with unique item IDs can have isolated recipe lists
+		uint32 world_item_id = m_tradeskill_object ? m_tradeskill_object->GetItemID() : 0;
+		if (world_item_id && world_item_id != tsf->object_type) {
+			containers += StringFormat(" in (%u, %u) ", tsf->object_type, world_item_id);
+		} else {
+			containers += StringFormat(" = %u ", tsf->object_type);
+		}
 		combineObjectSlots = 10;
 	}
 	else {
@@ -13374,6 +13381,9 @@ void Client::Handle_OP_RecipesFavorite(const EQApplicationPacket *app)
 			) > 0
 				AND SUM(tre.componentcount) <= %u
 
+				ORDER BY
+				tr.trivial ASC
+
 				LIMIT
 				100
 		),
@@ -13410,8 +13420,14 @@ void Client::Handle_OP_RecipesSearch(const EQApplicationPacket *app)
 	char   containers_where_clause[30];
 	uint32 combine_object_slots;
 	if (p_recipes_search_struct->some_id == 0) {
-		// world combiner so no item number
-		snprintf(containers_where_clause, 29, "= %u", p_recipes_search_struct->object_type);
+		// world combiner — include both the object type AND the object's item ID so
+		// custom world forges with unique item IDs can have isolated recipe lists
+		uint32 world_item_id = m_tradeskill_object ? m_tradeskill_object->GetItemID() : 0;
+		if (world_item_id && world_item_id != p_recipes_search_struct->object_type) {
+			snprintf(containers_where_clause, 29, "in (%u,%u)", p_recipes_search_struct->object_type, world_item_id);
+		} else {
+			snprintf(containers_where_clause, 29, "= %u", p_recipes_search_struct->object_type);
+		}
 		combine_object_slots = 10;
 	}
 	else {
@@ -13475,6 +13491,9 @@ void Client::Handle_OP_RecipesSearch(const EQApplicationPacket *app)
 			)
 			) > 0
 				AND SUM(tre.componentcount) <= {}
+
+				ORDER BY
+				tr.trivial ASC
 
 				LIMIT
 				200

@@ -7,12 +7,15 @@
 	},
 	"appPort": [
 		"5998:5998/udp",
+		"5999:5999/udp",
 		"7000:7000/udp",
 		"7001:7001/udp",
 		"7002:7002/udp",
 		"7003:7003/udp",
 		"7004:7004/udp",
 		"7005:7005/udp",
+		"7006:7006/udp",
+		"7007:7007/udp",
 		"9000:9000/udp",
 		"9001:9001/udp"
 	],
@@ -85,7 +88,7 @@
 		"source=${localWorkspaceFolder}/.devcontainer/base/patches,target=/src/build/bin/assets/patches,type=bind,consistency=cached"
 	],
 
-	"postCreateCommand": "sudo chown -R vscode:vscode /src/build /src/submodules/vcpkg/buildtrees /src/submodules/vcpkg/packages",
+	"postCreateCommand": "sudo chown -R vscode:vscode /src/build /src/submodules/vcpkg/buildtrees /src/submodules/vcpkg/packages && git config --global user.name 'Twochords' && git config --global user.email 'michael.malidore@gmail.com'",
 	"workspaceFolder": "/src",
 	"workspaceMount": "source=${localWorkspaceFolder},target=/src,type=bind,consistency=cached"
 }

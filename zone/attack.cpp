@@ -1745,8 +1745,6 @@ bool Mob::Attack(Mob* other, int Hand, bool bRiposte, bool IsStrikethrough, bool
 			my_hit.min_damage = ucDamageBonus;
 			hate += ucDamageBonus;
 		}
-#endif
-		int ucDamageBonus = 0;
 		//Live AA - Sinister Strikes *Adds weapon damage bonus to offhand weapon.
 		if (Hand == EQ::invslot::slotSecondary &&
 			(
@@ -1760,6 +1758,7 @@ bool Mob::Attack(Mob* other, int Hand, bool bRiposte, bool IsStrikethrough, bool
 			my_hit.min_damage = ucDamageBonus;
 			hate += ucDamageBonus;
 		}
+#endif
 
 		LogCombatDetail("Damage calculated base [{}] min damage [{}] skill [{}]", my_hit.base_damage, my_hit.min_damage, my_hit.skill);
 
