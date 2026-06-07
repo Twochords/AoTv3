@@ -116,6 +116,8 @@ bool Client::Process() {
 			BroadcastPositionUpdate();
 		}
 
+		AoT_ProcessMemorize();
+
 		if (mana_timer.Check())
 			CheckManaEndUpdate();
 

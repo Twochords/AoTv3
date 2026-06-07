@@ -1197,6 +1197,11 @@ RULE_INT(AoT, SpellRollOptions,    3,     "Number of spell options presented whe
 RULE_INT(AoT, DamageCapBaseDelayPct,    100, "Base damage cap as a percent of weapon delay (100 = 100% of delay)")
 RULE_INT(AoT, DamageCapLevelPctPerLevel, 10, "Additional cap percent of weapon delay added per character level (10 = +10% per level)")
 RULE_INT(AoT, DamageCapTwoHandBonusPct,  80, "Additional percent bonus to the damage cap for two-handed weapons (80 = +80%, so 180% of 1H cap)")
+RULE_INT(AoT, MemorizeDelayMs,        3000, "Milliseconds a player must sit still after clicking a gem slot before the spell is memorized")
+RULE_REAL(AoT, MitFloorAcCoeff,       1.25, "AC coefficient in the mitigation floor formula: mit/(coeff*mit + scalar*off). Asymptote = 1/coeff (default 80% max floor)")
+RULE_REAL(AoT, MitOffScalar,          2.0,  "Offense multiplier in the mitigation roll denominator. Higher = offense dominates more; also raises the deflect threshold")
+RULE_REAL(AoT, MitAcDR,              0.4,  "AC coefficient in the mitigation roll denominator. Higher = more DR on stacking AC; also raises the deflect threshold")
+RULE_INT(AoT,  MeleeHasteCap,         100, "Maximum melee haste bonus as a percent above base speed (100 = hard cap at double speed, i.e. GetHaste()=200)")
 RULE_CATEGORY_END()
 
 #undef RULE_CATEGORY

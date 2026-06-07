@@ -1010,44 +1010,8 @@ uint32 Client::GetEXPForLevel(uint16 check_level)
 	}
 #endif
 
-	uint16 check_levelm1 = check_level-1;
-	float mod;
-	if (check_level < 31)
-		mod = 1.0;
-	else if (check_level < 36)
-		mod = 1.1;
-	else if (check_level < 41)
-		mod = 1.2;
-	else if (check_level < 46)
-		mod = 1.3;
-	else if (check_level < 52)
-		mod = 1.4;
-	else if (check_level < 53)
-		mod = 1.5;
-	else if (check_level < 54)
-		mod = 1.6;
-	else if (check_level < 55)
-		mod = 1.7;
-	else if (check_level < 56)
-		mod = 1.9;
-	else if (check_level < 57)
-		mod = 2.1;
-	else if (check_level < 58)
-		mod = 2.3;
-	else if (check_level < 59)
-		mod = 2.5;
-	else if (check_level < 60)
-		mod = 2.7;
-	else if (check_level < 61)
-		mod = 3.0;
-	else
-		mod = 3.1;
-
-	float base = (check_levelm1)*(check_levelm1)*(check_levelm1);
-
-	mod *= 1000;
-
-	uint32 finalxp = uint32(base * mod);
+	uint16 check_levelm1 = check_level - 1;
+	uint32 finalxp = static_cast<uint32>(500 * check_levelm1 * (check_levelm1 + 3));
 
 	if(RuleB(Character,UseOldRaceExpPenalties))
 	{

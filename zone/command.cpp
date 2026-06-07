@@ -95,6 +95,7 @@ int command_init(void)
 	}
 
 	if (
+		command_add("aotrebirth", "Trigger AoT roguelite rebirth on yourself or your target", AccountStatus::GMAdmin, command_aotrebirth) ||
 		command_add("acceptrules", "[acceptrules] - Accept the EQEmu Agreement", AccountStatus::Player, command_acceptrules) ||
 		command_add("advnpcspawn", "[maketype|makegroup|addgroupentry|addgroupspawn][removegroupspawn|movespawn|editgroupbox|cleargroupbox]", AccountStatus::GMLeadAdmin, command_advnpcspawn) ||
 		command_add("aggrozone", "[aggro] - Aggro every mob in the zone with X aggro. Default is 0. Not recommend if you're not invulnerable.", AccountStatus::GMAdmin, command_aggrozone) ||

@@ -782,8 +782,8 @@ void Client::ZonePC(uint32 zoneID, uint32 instance_id, float x, float y, float z
 		}
 	}
 
-	// zone sharding
-	if (zoneID == zd->zoneidnumber &&
+	// zone sharding — zd may be null if zone is not in the zone table; skip sharding in that case
+	if (zd && zoneID == zd->zoneidnumber &&
 		instance_id == 0 &&
 		zd->shard_at_player_count > 0) {
 
@@ -1180,7 +1180,7 @@ void Client::GoToBind(uint8 bind_number) {
 }
 
 void Client::GoToDeath() {
-	MovePC(m_pp.binds[0].zone_id, m_pp.binds[0].instance_id, 0.0f, 0.0f, 0.0f, 0.0f, 1, ZoneToBindPoint);
+	MovePC(729, 0, 0.0f, 0.0f, 0.0f, 0.0f, 1, ZoneToSafeCoords);
 }
 
 void Client::ClearZoneFlag(uint32 zone_id)

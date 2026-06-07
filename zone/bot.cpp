@@ -5257,7 +5257,6 @@ void Bot::DoSpecialAttackDamage(Mob *who, EQ::skills::SkillType skill, int32 max
 	my_hit.damage_done = 1;
 
 	my_hit.skill = skill;
-	my_hit.offense = offense(my_hit.skill);
 	my_hit.tohit = GetTotalToHit(my_hit.skill, 0);
 	my_hit.hand = EQ::invslot::slotPrimary;
 

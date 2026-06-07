@@ -653,4 +653,8 @@ N(OP_AoTDiscovered),
 N(OP_AoTMemorizeSpell),
 N(OP_AoTSyncPendingRolls),
 N(OP_AoTSyncDiscovered),
+N(OP_AoTSaveLoadout),
+N(OP_AoTApplyLoadout),
+N(OP_AoTLoadSpellSet),
+N(OP_AoTStatBlock),
 // mail and chat opcodes located in ../mail_oplist.h

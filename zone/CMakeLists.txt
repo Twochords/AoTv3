@@ -372,6 +372,7 @@ set(gm_command_sources
     gm_commands/advnpcspawn.cpp
     gm_commands/aggrozone.cpp
     gm_commands/ai.cpp
+    gm_commands/aotrebirth.cpp
     gm_commands/appearance.cpp
     gm_commands/appearanceeffects.cpp
     gm_commands/attack.cpp

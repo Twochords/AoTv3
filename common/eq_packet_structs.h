@@ -6382,6 +6382,75 @@ struct AoTMemorizeSpell_Struct {
 	/* 05 */
 };
 
+struct AoTSaveLoadout_Struct {
+	/* 00 */	uint8 slot;  // 0 = Set A, 1 = Set B
+	/* 01 */
+};
+
+struct AoTApplyLoadout_Struct {
+	/* 00 */	uint8 slot;  // 0 = Set A, 1 = Set B
+	/* 01 */
+};
+
+struct AoTLoadSpellSet_Struct {
+	/* 00 */	uint32 spell[9];  // 0xFFFFFFFF = leave this gem slot alone
+	/* 36 */
+};
+
+struct AoT_StatBlock_Struct {
+	// Defensive
+	int32_t ac_mitigation;            // ACSum() — pure mitigation, no avoidance
+	int32_t min_mit_pct_x100;         // min_mit * 10000 (e.g. 2800 = 28.00%)
+	int32_t deflect_pct_x100;         // P(full deflect) * 10000
+	int32_t avoidance_score;          // GetTotalDefense()
+	int32_t avoid_pct_x100;           // P(avoid hit) * 10000
+	uint8_t critable;                 // 1=TRUE 0=FALSE (!HasShieldEquipped())
+	// Speed
+	int32_t melee_haste_x100;         // 10000 = 100% base speed
+	int32_t cast_speed_x100;          // 10000 = baseline
+	// Primary weapon
+	int32_t wpn_max_hit;
+	int32_t wpn_offense;
+	int32_t wpn_accuracy;
+	int32_t wpn_hit_pct_x100;
+	int32_t wpn_crit_pct_x1000;       // e.g. 3500 = 3.5%
+	int32_t wpn_crit_dmg_pct_x100;    // e.g. 20000 = 200%
+	int32_t wpn_delay_x100;           // haste-adjusted, e.g. 400 = 4.00s
+	int32_t wpn_dps_x100;
+	uint8_t wpn_valid;
+	// Secondary weapon
+	int32_t sec_max_hit;
+	int32_t sec_offense;
+	int32_t sec_accuracy;
+	int32_t sec_hit_pct_x100;
+	int32_t sec_crit_pct_x1000;
+	int32_t sec_crit_dmg_pct_x100;
+	int32_t sec_delay_x100;
+	int32_t sec_dps_x100;
+	uint8_t sec_valid;
+	// Ranged weapon
+	int32_t rng_max_hit;
+	int32_t rng_offense;
+	int32_t rng_accuracy;
+	int32_t rng_hit_pct_x100;
+	int32_t rng_crit_pct_x1000;
+	int32_t rng_crit_dmg_pct_x100;
+	int32_t rng_delay_x100;
+	int32_t rng_dps_x100;
+	uint8_t rng_valid;
+	// Spell stats ([0]=PSN [1]=MAG [2]=DIS [3]=FIR [4]=CLD [5]=CRP)
+	int32_t spell_crit_pct_x1000;
+	int32_t spell_dc[6];              // CHA/5 per type
+	int32_t spell_potency_x100[6];    // 10000 = 100% baseline
+	// Healing stats
+	int32_t heal_crit_pct_x1000;
+	int32_t heal_potency_direct_x100;
+	int32_t heal_potency_hot_x100;
+	int32_t heal_potency_rune_x100;
+	// Threat
+	int32_t threat_mod_x100;          // -(CHA-75)*5, display-only
+};
+
 enum BazaarTraderBarterActions {
 	TraderOff                    = 0,
 	TraderOn                     = 1,

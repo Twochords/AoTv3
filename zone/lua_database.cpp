@@ -58,6 +58,7 @@ void Lua_MySQLPreparedStmt::Execute(lua_State* L, luabind::object args)
 	if (m_stmt)
 	{
 		std::vector<mysql::PreparedStmt::param_t> inputs;
+		std::vector<std::string> string_storage; // backing storage for string_view entries in inputs
 
 		// iterate table until nil like ipairs to guarantee traversal order
 		for (int i = 1, type; (type = luabind::type(args[i])) != LUA_TNIL; ++i)
@@ -71,7 +72,8 @@ void Lua_MySQLPreparedStmt::Execute(lua_State* L, luabind::object args)
 				inputs.emplace_back(luabind::object_cast<lua_Number>(args[i]));
 				break;
 			case LUA_TSTRING:
-				inputs.emplace_back(luabind::object_cast<const char*>(args[i]));
+				string_storage.push_back(luabind::object_cast<std::string>(args[i]));
+				inputs.emplace_back(std::string_view(string_storage.back()));
 				break;
 			case LUA_TTABLE: // let tables substitute for null since nils can't exist
 				inputs.emplace_back(nullptr);

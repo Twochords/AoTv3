@@ -808,6 +808,7 @@ public:
 	void SacrificeConfirm(Mob* caster);
 	void Sacrifice(Mob* caster);
 	void GoToDeath();
+	void AoTRebirth();
 	inline const int32 GetInstanceID() const { return zone->GetInstanceID(); }
 	void SetZoning(bool in) { bZoning = in; }
 	bool IsZoning() { return bZoning; }
@@ -2146,6 +2147,7 @@ private:
 
 	void SendLogoutPackets();
 	void SendZoneInPackets();
+	void SendAoTStatBlock();
 	bool AddPacket(const EQApplicationPacket *, bool);
 	bool AddPacket(EQApplicationPacket**, bool);
 	bool SendAllPackets();
@@ -2225,6 +2227,13 @@ private:
 	bool                                  m_is_idle    = false;
 	bool                                  m_afk_reset  = false; // used to trigger next-tic afk reset
 	std::chrono::steady_clock::time_point m_last_moved = std::chrono::steady_clock::now();
+
+	// AoT memorization state — pending gem assignment waiting for sit timer
+	Timer    m_aot_memorize_timer;
+	uint32   m_aot_pending_spell_id  = 0xFFFFFFFF;
+	uint8    m_aot_pending_gem_slot  = 0;
+	std::vector<std::pair<uint32, uint8>> m_aot_loadout_queue;
+	void     AoT_ProcessMemorize();
 
 	void BulkSendInventoryItems();
 
@@ -2421,6 +2430,9 @@ public:
 	void Handle_OP_AoTMemorizeSpell(const EQApplicationPacket *app);
 	void Handle_OP_AoTSyncPendingRolls(const EQApplicationPacket *app);
 	void Handle_OP_AoTSyncDiscovered(const EQApplicationPacket *app);
+	void Handle_OP_AoTSaveLoadout(const EQApplicationPacket *app);
+	void Handle_OP_AoTApplyLoadout(const EQApplicationPacket *app);
+	void Handle_OP_AoTLoadSpellSet(const EQApplicationPacket *app);
 	bool IsFilteredAFKPacket(const EQApplicationPacket *p);
 	void CheckAutoIdleAFK(PlayerPositionUpdateClient_Struct *p);
 	void SyncWorldPositionsToClient(bool ignore_idle = false);

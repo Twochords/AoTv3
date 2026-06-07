@@ -112,6 +112,8 @@ void Client::CalcBonuses()
 	timer = timer * (100 + metabolism) / 100;
 	if (timer != consume_food_timer.GetTimerTime())
 		consume_food_timer.SetTimer(timer);
+
+	SendAoTStatBlock();
 }
 
 int Mob::CalcRecommendedLevelBonus(uint8 current_level, uint8 recommended_level, int base_stat)
@@ -349,7 +351,7 @@ void Mob::AddItemBonuses(const EQ::ItemInstance* inst, StatBonuses* b, bool is_a
 	b->MeleeMitigation  = CalcCappedItemBonus(b->MeleeMitigation, item->Shielding, RuleI(Character, ItemShieldingCap));
 	b->StunResist       = CalcCappedItemBonus(b->StunResist, item->StunResist, RuleI(Character, ItemStunResistCap));
 	b->StrikeThrough    = CalcCappedItemBonus(b->StrikeThrough, item->StrikeThrough, RuleI(Character, ItemStrikethroughCap));
-	b->AvoidMeleeChance = CalcCappedItemBonus(b->AvoidMeleeChance, item->Avoidance, RuleI(Character, ItemAvoidanceCap));
+	b->AvoidMeleeChance += item->Avoidance;
 	b->HitChance        = CalcCappedItemBonus(b->HitChance, item->Accuracy, RuleI(Character, ItemAccuracyCap));
 	b->ProcChance       = CalcCappedItemBonus(b->ProcChance, item->CombatEffects, RuleI(Character, ItemCombatEffectsCap));
 	b->DoTShielding     = CalcCappedItemBonus(b->DoTShielding, item->DotShielding, RuleI(Character, ItemDoTShieldingCap));
@@ -5865,12 +5867,12 @@ void Mob::SetHeroicDexBonuses(StatBonuses* n)
 
 void Mob::SetHeroicAgiBonuses(StatBonuses* n)
 {
-	n->heroic_agi_avoidance += GetHeroicAGI() * RuleR(Character, HeroicAgilityMultiplier) / 10;
+	n->heroic_agi_avoidance += static_cast<int>(GetHeroicAGI() * RuleR(Character, HeroicAgilityMultiplier));
 	n->heroic_max_end += GetHeroicAGI() * RuleR(Character, HeroicAgilityMultiplier) / 4 * 10.0f;
 	n->heroic_end_regen += GetHeroicAGI() * RuleR(Character, HeroicAgilityMultiplier) / 4 / 50;
 
 	if (RuleB(Character, HeroicStatsUseDataBucketsToScale)) {
-		n->heroic_agi_avoidance += GetHeroicAGI() * CheckHeroicBonusesDataBuckets(HeroicBonusBucket::AgiAvoidance) / 10;
+		n->heroic_agi_avoidance += GetHeroicAGI() * CheckHeroicBonusesDataBuckets(HeroicBonusBucket::AgiAvoidance);
 		n->heroic_max_end += GetHeroicAGI() * CheckHeroicBonusesDataBuckets(HeroicBonusBucket::AgiMaxEndurance) / 4 * 10.0f;
 		n->heroic_end_regen += GetHeroicAGI() * CheckHeroicBonusesDataBuckets(HeroicBonusBucket::AgiEnduranceRegen) / 4 / 50;
 	}

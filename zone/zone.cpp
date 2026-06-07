@@ -57,6 +57,7 @@
 #include "zone/zone_config.h"
 #include "zone/zone_reload.h"
 
+#include <algorithm>
 #include <cfloat>
 #include <cstdlib>
 #include <cstring>
@@ -1678,10 +1679,20 @@ bool Zone::Process() {
 
 	const bool has_timer_event = parse->ZoneHasQuestSub(EVENT_TIMER);
 
-	for (auto e : zone_timers) {
-		if (e.timer_.Enabled() && e.timer_.Check()) {
+	// Snapshot names first — EVENT_TIMER callbacks may call Zone::SetTimer() which
+	// calls zone_timers.emplace_back(), reallocating the vector and invalidating iterators.
+	std::vector<std::string> timer_names;
+	timer_names.reserve(zone_timers.size());
+	for (const auto& t : zone_timers) {
+		timer_names.push_back(t.name);
+	}
+	for (const auto& name : timer_names) {
+		auto it = std::find_if(zone_timers.begin(), zone_timers.end(),
+		                       [&](const ZoneTimer& t){ return t.name == name; });
+		if (it == zone_timers.end()) { continue; }
+		if (it->timer_.Enabled() && it->timer_.Check()) {
 			if (has_timer_event) {
-				parse->EventZone(EVENT_TIMER, this, e.name);
+				parse->EventZone(EVENT_TIMER, this, name);
 			}
 		}
 	}

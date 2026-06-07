@@ -258,7 +258,6 @@ void Mob::DoSpecialAttackDamage(Mob *who, EQ::skills::SkillType skill, int32 bas
 		}
 	}
 
-	my_hit.offense = offense(my_hit.skill);
 	my_hit.tohit = GetTotalToHit(my_hit.skill, 0);
 
 	// Rogue Backstab Haste Correction
@@ -1125,7 +1124,6 @@ void Mob::DoArcheryAttackDmg(Mob *other, const EQ::ItemInstance *RangeWeapon, co
 		my_hit.damage_done = 1;
 
 		my_hit.skill = EQ::skills::SkillArchery;
-		my_hit.offense = offense(my_hit.skill);
 		my_hit.tohit = GetTotalToHit(my_hit.skill, chance_mod);
 		my_hit.hand = EQ::invslot::slotRange;
 
@@ -1503,7 +1501,6 @@ void NPC::DoRangedAttackDmg(Mob* other, bool Launch, int16 damage_mod, int16 cha
 	my_hit.damage_done = 1;
 
 	my_hit.skill = skill;
-	my_hit.offense = offense(my_hit.skill);
 	my_hit.tohit = GetTotalToHit(my_hit.skill, chance_mod);
 	my_hit.hand = EQ::invslot::slotRange;
 
@@ -1712,7 +1709,6 @@ void Mob::DoThrowingAttackDmg(Mob *other, const EQ::ItemInstance *RangeWeapon, c
 		my_hit.damage_done = 1;
 
 		my_hit.skill = EQ::skills::SkillThrowing;
-		my_hit.offense = offense(my_hit.skill);
 		my_hit.tohit = GetTotalToHit(my_hit.skill, chance_mod);
 		my_hit.hand = EQ::invslot::slotRange;
 
@@ -2671,7 +2667,6 @@ void Mob::DoMeleeSkillAttackDmg(Mob *other, int32 dps_pct, EQ::skills::SkillType
 		my_hit.min_damage  = 0;
 		my_hit.damage_done = 1;
 		my_hit.skill       = skillinuse;
-		my_hit.offense     = offense(my_hit.skill);
 		my_hit.tohit       = GetTotalToHit(my_hit.skill, chance_mod);
 		my_hit.hand        = can_riposte ? EQ::invslot::slotPrimary : EQ::invslot::slotRange;
 

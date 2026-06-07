@@ -476,30 +476,11 @@ uint32 Mob::GetClassLevelFactor()
 
 int64 Client::CalcBaseHP()
 {
-	if (ClientVersion() >= EQ::versions::ClientVersion::SoF && RuleB(Character, SoDClientUseSoDHPManaEnd)) {
-		int stats = GetSTA();
-		if (stats > 255) {
-			stats = (stats - 255) / 2;
-			stats += 255;
-		}
-		base_hp = 5;
-		auto base_data = zone->GetBaseData(GetLevel(), GetClass());
-		if (base_data.level == GetLevel()) {
-			base_hp += base_data.hp + (base_data.hp_fac * stats);
-			base_hp += itembonuses.heroic_max_hp;
-		}
+	auto base_data = zone->GetBaseData(GetLevel(), GetClass());
+	if (base_data.level != GetLevel()) {
+		return 0;
 	}
-	else {
-		uint32 Post255;
-		uint32 lm = GetClassLevelFactor();
-		if ((GetSTA() - 255) / 2 > 0) {
-			Post255 = (GetSTA() - 255) / 2;
-		}
-		else {
-			Post255 = 0;
-		}
-		base_hp = (5) + (GetLevel() * lm / 10) + (((GetSTA() - Post255) * GetLevel() * lm / 3000)) + ((Post255 * GetLevel()) * lm / 6000);
-	}
+	base_hp = static_cast<int64>(base_data.hp + base_data.hp_fac * GetSTA());
 	return base_hp;
 }
 
@@ -553,84 +534,14 @@ int64 Client::CalcMaxMana()
 
 int64 Client::CalcBaseMana()
 {
-	int   ConvertedWisInt = 0;
-	int   MindLesserFactor, MindFactor;
-	int   WisInt          = 0;
-	int64 base_mana       = 0;
-	int   wisint_mana     = 0;
-	int64 max_m           = 0;
-
-	if (IsIntelligenceCasterClass()) {
-		WisInt = GetINT();
-
-		if (ClientVersion() >= EQ::versions::ClientVersion::SoF && RuleB(Character, SoDClientUseSoDHPManaEnd)) {
-			ConvertedWisInt = WisInt;
-
-			int over200 = WisInt;
-			if (WisInt > 100) {
-				if (WisInt > 200) {
-					over200 = (WisInt - 200) / -2 + WisInt;
-				}
-				ConvertedWisInt = (3 * over200 - 300) / 2 + over200;
-			}
-
-			auto base_data = zone->GetBaseData(GetLevel(), GetClass());
-			if (base_data.level == GetLevel()) {
-				max_m = base_data.mana + (ConvertedWisInt * base_data.mana_fac) + itembonuses.heroic_max_mana;
-			}
-		} else {
-			if (((WisInt - 199) / 2) > 0) {
-				MindLesserFactor = (WisInt - 199) / 2;
-			} else {
-				MindLesserFactor = 0;
-			}
-
-			MindFactor = WisInt - MindLesserFactor;
-
-			if (WisInt > 100) {
-				max_m = (((5 * (MindFactor + 20)) / 2) * 3 * GetLevel() / 40);
-			} else {
-				max_m = (((5 * (MindFactor + 200)) / 2) * 3 * GetLevel() / 100);
-			}
-		}
-	} else if (IsWisdomCasterClass()) {
-		WisInt = GetWIS();
-
-		if (ClientVersion() >= EQ::versions::ClientVersion::SoF && RuleB(Character, SoDClientUseSoDHPManaEnd)) {
-			ConvertedWisInt = WisInt;
-
-			int over200 = WisInt;
-			if (WisInt > 100) {
-				if (WisInt > 200) {
-					over200 = (WisInt - 200) / -2 + WisInt;
-				}
-				ConvertedWisInt = (3 * over200 - 300) / 2 + over200;
-			}
-
-			auto base_data = zone->GetBaseData(GetLevel(), GetClass());
-			if (base_data.level == GetLevel()) {
-				max_m = base_data.mana + (ConvertedWisInt * base_data.mana_fac) + itembonuses.heroic_max_mana;
-			}
-		} else {
-			if (((WisInt - 199) / 2) > 0) {
-				MindLesserFactor = (WisInt - 199) / 2;
-			} else {
-				MindLesserFactor = 0;
-			}
-
-			MindFactor = WisInt - MindLesserFactor;
-
-			if (WisInt > 100) {
-				max_m = (((5 * (MindFactor + 20)) / 2) * 3 * GetLevel() / 40);
-			} else {
-				max_m = (((5 * (MindFactor + 200)) / 2) * 3 * GetLevel() / 100);
-			}
-		}
-	} else {
-		max_m = 0;
+	if (!IsIntelligenceCasterClass() && !IsWisdomCasterClass()) {
+		return 0;
 	}
-
-	return max_m;
+	auto base_data = zone->GetBaseData(GetLevel(), GetClass());
+	if (base_data.level != GetLevel()) {
+		return 0;
+	}
+	return static_cast<int64>(base_data.mana + base_data.mana_fac * (GetINT() + GetWIS() + GetCHA()));
 }
 
 int64 Client::CalcBaseManaRegen()
@@ -1615,47 +1526,11 @@ void Client::CalcMaxEndurance()
 
 int64 Client::CalcBaseEndurance()
 {
-	int64 base_end = 0;
-	if (ClientVersion() >= EQ::versions::ClientVersion::SoF && RuleB(Character, SoDClientUseSoDHPManaEnd)) {
-		double stats = (GetSTR() + GetSTA() + GetDEX() + GetAGI()) / 4.0f;
-
-		if (stats > 201.0f) {
-			stats = 1.25f * (stats - 201.0f) + 352.5f;
-		}
-		else if (stats > 100.0f) {
-			stats = 2.5f * (stats - 100.0f) + 100.0f;
-		}
-		auto base_data = zone->GetBaseData(GetLevel(), GetClass());
-		if (base_data.level == GetLevel()) {
-			base_end = base_data.end + itembonuses.heroic_max_end + (base_data.end_fac * static_cast<int>(stats));
-		}
+	auto base_data = zone->GetBaseData(GetLevel(), GetClass());
+	if (base_data.level != GetLevel()) {
+		return 0;
 	}
-	else {
-		int Stats = GetSTR() + GetSTA() + GetDEX() + GetAGI();
-		int LevelBase = GetLevel() * 15;
-		int at_most_800 = Stats;
-		if (at_most_800 > 800) {
-			at_most_800 = 800;
-		}
-		int Bonus400to800 = 0;
-		int HalfBonus400to800 = 0;
-		int Bonus800plus = 0;
-		int HalfBonus800plus = 0;
-		int BonusUpto800 = int( at_most_800 / 4 ) ;
-		if (Stats > 400) {
-			Bonus400to800 = int( (at_most_800 - 400) / 4 );
-			HalfBonus400to800 = int( std::max( ( at_most_800 - 400 ), 0 ) / 8 );
-			if (Stats > 800) {
-				Bonus800plus = int( (Stats - 800) / 8 ) * 2;
-				HalfBonus800plus = int( (Stats - 800) / 16 );
-			}
-		}
-		int64 bonus_sum = BonusUpto800 + Bonus400to800 + HalfBonus400to800 + Bonus800plus + HalfBonus800plus;
-		base_end = LevelBase;
-		//take all of the sums from above, then multiply by level*0.075
-		base_end += ( bonus_sum * 3 * GetLevel() ) / 40;
-	}
-	return base_end;
+	return static_cast<int64>(base_data.end + base_data.end_fac * (GetSTR() + GetSTA() + GetDEX() + GetAGI()));
 }
 
 int64 Client::CalcEnduranceRegen(bool bCombat)

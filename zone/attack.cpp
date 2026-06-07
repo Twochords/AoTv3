@@ -167,15 +167,15 @@ int Mob::compute_tohit(EQ::skills::SkillType skillinuse)
 	return std::max(tohit, 1);
 }
 
-// return -1 in cases that always hit
+// returns 999999 in cases that always hit (routes through dice system at extreme advantage)
 //SYNC WITH: tune.cpp, mob.h TuneGetTotalToHit
 int Mob::GetTotalToHit(EQ::skills::SkillType skill, int chance_mod)
 {
 	if (chance_mod >= 10000) // override for stuff like SpellEffect::SkillAttack
-		return -1;
+		return 999999;
 
 	// calculate attacker's accuracy
-	auto accuracy = compute_tohit(skill) + 10; // add 10 in case the NPC's stats are fucked
+	auto accuracy = compute_tohit(skill);
 	if (chance_mod > 0) // multiplier
 		accuracy *= chance_mod;
 
@@ -211,10 +211,10 @@ int Mob::GetTotalToHit(EQ::skills::SkillType skill, int chance_mod)
 
 	// auto hit discs (and looks like there are some autohit AAs)
 	if (spellbonuses.HitChanceEffect[skill] >= 10000 || aabonuses.HitChanceEffect[skill] >= 10000)
-		return -1;
+		return 999999;
 
 	if (spellbonuses.HitChanceEffect[EQ::skills::HIGHEST_SKILL + 1] >= 10000)
-		return -1;
+		return 999999;
 
 	// 184 Accuracy % aka SpellEffect::HitChance -- percentage increase
 	auto hit_bonus = itembonuses.HitChanceEffect[EQ::skills::HIGHEST_SKILL + 1] +
@@ -256,11 +256,7 @@ int Mob::compute_defense()
 	}
 	defense += itembonuses.AvoidMeleeChance;
 
-	// SPA 516 — percentage avoidance bonus
-	auto ac_bonus = itembonuses.AC_Mitigation_Max_Percent + aabonuses.AC_Mitigation_Max_Percent + spellbonuses.AC_Mitigation_Max_Percent;
-	if (ac_bonus) {
-		defense += static_cast<int>(round(static_cast<double>(defense) * static_cast<double>(ac_bonus) * 0.0001));
-	}
+	// AC_Mitigation_Max_Percent (SPA 516) removed from avoidance — wrong SPA, defunct.
 
 	if (IsNPC()) {
 		defense += CastToNPC()->GetAvoidanceRating();
@@ -277,22 +273,19 @@ int Mob::compute_defense()
 	return std::max(1, defense);
 }
 
-// return -1 in cases that always miss
+// returns 999999 in cases that always avoid (routes through dice system at extreme advantage)
 // SYNC WITH : tune.cpp, mob.h TuneGetTotalDefense()
 int Mob::GetTotalDefense()
 {
-	auto avoidance = compute_defense() + 10; // add 10 in case the NPC's stats are fucked
-	auto evasion_bonus = spellbonuses.AvoidMeleeChanceEffect; // we check this first since it has a special case
+	auto avoidance = compute_defense();
+	// AC_Avoidance_Max_Percent (SPA 515) removed — second % multiplier caused exponential growth with AvoidMeleeChanceEffect.
+
+	// 172 Evasion aka SpellEffect::AvoidMeleeChance — single % multiplier, stacks additively from all sources
+	auto evasion_bonus = spellbonuses.AvoidMeleeChanceEffect; // check first for special auto-avoid case
 	if (evasion_bonus >= 10000)
-		return -1;
+		return 999999;
 
-	// 515 SpellEffect::AC_Avoidance_Max_Percent
-	auto ac_aviodance_bonus = itembonuses.AC_Avoidance_Max_Percent + aabonuses.AC_Avoidance_Max_Percent + spellbonuses.AC_Avoidance_Max_Percent;
-	if (ac_aviodance_bonus)
-		avoidance += round(static_cast<double>(avoidance) * static_cast<double>(ac_aviodance_bonus) * 0.0001);
-
-	// 172 Evasion aka SpellEffect::AvoidMeleeChance
-	evasion_bonus += itembonuses.AvoidMeleeChanceEffect + aabonuses.AvoidMeleeChanceEffect; // item bonus here isn't mod2 avoidance
+	evasion_bonus += itembonuses.AvoidMeleeChanceEffect + aabonuses.AvoidMeleeChanceEffect;
 
 	// 215 Pet Avoidance % aka SpellEffect::PetAvoidance
 	evasion_bonus += GetPetAvoidanceBonusFromOwner();
@@ -328,12 +321,10 @@ bool Mob::CheckHitChance(Mob* other, DamageHitInfo &hit)
 	}
 
 	auto avoidance = defender->GetTotalDefense();
-	if (avoidance == -1) // some sort of auto avoid disc
-		return false;
-
 	auto accuracy = hit.tohit;
-	if (accuracy == -1)
-		return true;
+
+	if (avoidance < 1) avoidance = 1;
+	if (accuracy < 1)  accuracy  = 1;
 
 	// Dice-based hit system: 3 defender dice vs 4 attacker dice (5 if flanking).
 	// Defender needs 2 of 3 wins to avoid the hit.
@@ -895,18 +886,6 @@ int Mob::ACSum(bool skip_caps)
 {
 	int ac = 0; // this should be base AC whenever shrouds come around
 	ac += itembonuses.AC; // items + food + tribute
-	int shield_ac = 0;
-	if (HasShieldEquipped() && IsOfClientBot()) {
-		auto inst = (IsClient()) ? GetInv().GetItem(EQ::invslot::slotSecondary) : CastToBot()->GetBotItem(EQ::invslot::slotSecondary);
-		if (inst) {
-			if (inst->GetItemRecommendedLevel(true) <= GetLevel()) {
-				shield_ac = inst->GetItemArmorClass(true);
-			} else {
-				shield_ac = CalcRecommendedLevelBonus(GetLevel(), inst->GetItemRecommendedLevel(true), inst->GetItemArmorClass(true));
-			}
-		}
-		shield_ac += itembonuses.heroic_str_shield_ac;
-	}
 	// EQ math
 	// ac = (ac * 4) / 3;
 	// anti-twink
@@ -939,8 +918,8 @@ int Mob::ACSum(bool skip_caps)
 			ac += spell_aa_ac;
 	}
 
-	if (GetAGI())
-		ac += (GetAGI()-25) / 2;
+	if (GetAGI() > 25)
+		ac += GetAGI() - 25;
 	if (ac < 1)
 		ac = 1;
 
@@ -952,7 +931,6 @@ int Mob::ACSum(bool skip_caps)
 		int total_acmod = aabonuses.CombatStability + itembonuses.CombatStability + spellbonuses.CombatStability;
 		if (total_acmod)
 			ac = (ac * (100 + total_acmod)) / 100;
-		ac += shield_ac * 2;	// shield gives 3x ac
 		//	if (ac > softcap) {
 		//	auto over_cap = ac - softcap;
 		//	ac = softcap + (over_cap * returns);
@@ -990,6 +968,8 @@ int Mob::GetBestMeleeSkill()
 
 	return bestSkill;
 }
+// RETIRED from live path — AoT uses MeleeMitigation's inline offense formula.
+// Kept for reference and tune.cpp only. Do not call on hit path.
 //SYNC WITH: tune.cpp, mob.h Tuneoffense
 int Mob::offense(EQ::skills::SkillType skill)
 {
@@ -1088,9 +1068,13 @@ void Mob::MeleeMitigation(Mob *attacker, DamageHitInfo &hit, ExtraAttackOptions 
 	// Determine ranged vs melee for stat selection
 	const bool is_ranged_mit = (hit.skill == EQ::skills::SkillArchery || hit.skill == EQ::skills::SkillThrowing);
 
-	// offense for Do_Mitigation: 5 * level + DEX (melee) or STR (ranged)
-	const int off_stat = is_ranged_mit ? attacker->GetSTR() : attacker->GetDEX();
-	int offense = 5 * static_cast<int>(attacker->GetLevel()) + off_stat;
+	// offense for Do_Mitigation: 5 * level + STR (melee) or DEX (ranged) + ATK
+	// Same primary stat as max_hit so both scale together.
+	// Clients: GetATKBonus() avoids double-counting (ATK field already = item+spell ATK for PCs).
+	// NPCs: GetATK() is correct since their base ATK field is not double-counted.
+	const int off_stat   = is_ranged_mit ? attacker->GetDEX() : attacker->GetSTR();
+	const int atk_bonus  = attacker->IsOfClientBotMerc() ? attacker->GetATKBonus() : attacker->GetATK();
+	int offense = 5 * static_cast<int>(attacker->GetLevel()) + off_stat + atk_bonus;
 	if (offense < 1) offense = 1;
 	if (mitigation < 1) mitigation = 1;
 
@@ -1100,10 +1084,9 @@ void Mob::MeleeMitigation(Mob *attacker, DamageHitInfo &hit, ExtraAttackOptions 
 	const double stat_mult = std::max(0.5, (static_cast<double>(dmg_stat) - 25.0) * 0.02);
 	const double max_hit = static_cast<double>(hit.base_damage) * stat_mult;
 
-	// Do_Mitigation constants
-	constexpr double min_mit_cap = 100.0 / 80.0; // 1.25
-	constexpr double off_scalar  = 2.0;
-	constexpr double defense_dr  = 0.4;
+	const double min_mit_cap = RuleR(AoT, MitFloorAcCoeff);
+	const double off_scalar  = RuleR(AoT, MitOffScalar);
+	const double defense_dr  = RuleR(AoT, MitAcDR);
 
 	const double min_mit = static_cast<double>(mitigation) /
 		(min_mit_cap * static_cast<double>(mitigation) + off_scalar * static_cast<double>(offense));
@@ -1606,7 +1589,6 @@ void Mob::DoAttack(Mob *other, DamageHitInfo &hit, ExtraAttackOptions *opts, boo
 			}
 			other->MeleeMitigation(this, hit, opts);
 			if (hit.damage_done > 0) {
-				ApplyDamageTable(hit);
 				CommonOutgoingHitSuccess(other, hit, opts);
 			}
 			LogCombat("Final damage after all reductions: [{}]", hit.damage_done);
@@ -1782,7 +1764,6 @@ bool Mob::Attack(Mob* other, int Hand, bool bRiposte, bool IsStrikethrough, bool
 		LogCombatDetail("Damage calculated base [{}] min damage [{}] skill [{}]", my_hit.base_damage, my_hit.min_damage, my_hit.skill);
 
 		int hit_chance_bonus = 0;
-		my_hit.offense = offense(my_hit.skill); // we need this a few times
 		my_hit.hand = Hand;
 
 		if (opts) {
@@ -2229,8 +2210,8 @@ bool Client::Death(Mob* killer_mob, int64 damage, uint16 spell, EQ::skills::Skil
 		}
 
 		dead_timer.Start(5000, true);
-		m_pp.zone_id = m_pp.binds[0].zone_id;
-		m_pp.zoneInstance = m_pp.binds[0].instance_id;
+		m_pp.zone_id = 729;
+		m_pp.zoneInstance = 0;
 		database.MoveCharacterToZone(CharacterID(), m_pp.zone_id);
 		Save();
 		GoToDeath();
@@ -2454,7 +2435,6 @@ bool NPC::Attack(Mob* other, int Hand, bool bRiposte, bool IsStrikethrough, bool
 			hit_chance_bonus += opts->hit_chance;
 		}
 
-		my_hit.offense = offense(my_hit.skill);
 		my_hit.tohit = GetTotalToHit(my_hit.skill, hit_chance_bonus);
 
 		DoAttack(other, my_hit, opts, bRiposte);
@@ -5940,6 +5920,8 @@ int Mob::GetMobFixedWeaponSkill()
 	return 330 + (level - 66);
 }
 
+// RETIRED — no longer called from the live attack path. MeleeMitigation owns all
+// damage scaling in AoT. Kept for reference and tune.cpp; do not re-add to hot path.
 void Mob::ApplyDamageTable(DamageHitInfo &hit)
 {
 #ifdef LUA_EQEMU

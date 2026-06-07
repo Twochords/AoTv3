@@ -419,6 +419,9 @@ void MapOpcodes()
 	ConnectedOpcodes[OP_AoTMemorizeSpell]      = &Client::Handle_OP_AoTMemorizeSpell;
 	ConnectedOpcodes[OP_AoTSyncPendingRolls]   = &Client::Handle_OP_AoTSyncPendingRolls;
 	ConnectedOpcodes[OP_AoTSyncDiscovered]      = &Client::Handle_OP_AoTSyncDiscovered;
+	ConnectedOpcodes[OP_AoTSaveLoadout]         = &Client::Handle_OP_AoTSaveLoadout;
+	ConnectedOpcodes[OP_AoTApplyLoadout]        = &Client::Handle_OP_AoTApplyLoadout;
+	ConnectedOpcodes[OP_AoTLoadSpellSet]        = &Client::Handle_OP_AoTLoadSpellSet;
 
 	// shared tasks
 	ConnectedOpcodes[OP_SharedTaskRemovePlayer]   = &Client::Handle_OP_SharedTaskRemovePlayer;
@@ -5842,6 +5845,8 @@ void Client::Handle_OP_Disarm(const EQApplicationPacket *app) {
 
 void Client::Handle_OP_DeleteSpell(const EQApplicationPacket *app)
 {
+	return;
+
 	if (app->size != sizeof(DeleteSpell_Struct))
 		return;
 
@@ -10257,12 +10262,51 @@ void Client::Handle_OP_LoadSpellSet(const EQApplicationPacket *app)
 		printf("Wrong size of LoadSpellSet_Struct! Expected: %zu, Got: %i\n", sizeof(LoadSpellSet_Struct), app->size);
 		return;
 	}
-	int i;
+	if (!IsSitting()) {
+		Message(Chat::White, "You must be sitting to load a spell set.");
+		return;
+	}
+
+	// Cancel any in-progress memorization
+	m_aot_pending_spell_id = 0xFFFFFFFF;
+	m_aot_memorize_timer.Disable();
+	m_aot_loadout_queue.clear();
+
 	LoadSpellSet_Struct* ss = (LoadSpellSet_Struct*)app->pBuffer;
-	for (i = 0; i < EQ::spells::SPELL_GEM_COUNT; i++) {
-		if (ss->spell[i] != 0xFFFFFFFF)
+
+	// Unmem gems that conflict with the desired set.
+	// Slots where desired == 0xFFFFFFFF (saved as -1 / empty) are skipped entirely —
+	// the set does not specify those slots so existing spells there are preserved.
+	for (int i = 0; i < EQ::spells::SPELL_GEM_COUNT; i++) {
+		uint32 current = m_pp.mem_spells[i];
+		if (current == 0xFFFFFFFF) continue;  // already empty
+		uint32 desired = ss->spell[i];
+		if (desired == 0xFFFFFFFF) continue;  // not specified — leave alone
+		if (current != desired)
 			UnmemSpell(i, true);
 	}
+
+	// Queue gems that need to be memorized
+	for (int i = 0; i < EQ::spells::SPELL_GEM_COUNT; i++) {
+		uint32 desired = ss->spell[i];
+		if (desired == 0xFFFFFFFF || !IsValidSpell(desired)) continue;
+		if (m_pp.mem_spells[i] == desired) continue;
+		m_aot_loadout_queue.push_back({desired, (uint8)i});
+	}
+
+	if (m_aot_loadout_queue.empty()) {
+		Message(Chat::White, "Spell set loaded.");
+		return;
+	}
+
+	// Kick off the first gem in the queue
+	auto [spell_id, gem_slot] = m_aot_loadout_queue.front();
+	m_aot_loadout_queue.erase(m_aot_loadout_queue.begin());
+	m_aot_pending_spell_id = spell_id;
+	m_aot_pending_gem_slot = gem_slot;
+	m_aot_memorize_timer.Start(RuleI(AoT, MemorizeDelayMs));
+	Message(Chat::White, "Loading spell set... sit still. (%zu gem(s) to memorize)",
+	        m_aot_loadout_queue.size() + 1);
 }
 
 void Client::Handle_OP_Logout(const EQApplicationPacket *app)
@@ -15029,6 +15073,7 @@ void Client::Handle_OP_Surname(const EQApplicationPacket *app)
 
 void Client::Handle_OP_SwapSpell(const EQApplicationPacket *app)
 {
+	return;
 
 	if (app->size != sizeof(SwapSpell_Struct)) {
 		std::cout << "Wrong size on OP_SwapSpell. Got: " << app->size << ", Expected: " << sizeof(SwapSpell_Struct) << std::endl;
@@ -17515,7 +17560,46 @@ void Client::Handle_OP_AoTMemorizeSpell(const EQApplicationPacket *app)
 	auto *m = (AoTMemorizeSpell_Struct *)app->pBuffer;
 	if (m->gem_slot >= EQ::spells::SPELL_GEM_COUNT) return;
 	if (!IsValidSpell(m->spell_id)) return;
-	MemSpell(m->spell_id, m->gem_slot);
+
+	if (!IsSitting()) {
+		Message(Chat::White, "You must be sitting to memorize spells.");
+		return;
+	}
+
+	m_aot_pending_spell_id = m->spell_id;
+	m_aot_pending_gem_slot = m->gem_slot;
+	m_aot_memorize_timer.Start(RuleI(AoT, MemorizeDelayMs));
+
+	Message(Chat::White, "Memorizing %s... sit still.", spells[m->spell_id].name);
+}
+
+void Client::AoT_ProcessMemorize()
+{
+	if (m_aot_pending_spell_id == 0xFFFFFFFF)
+		return;
+
+	if (!IsSitting()) {
+		Message(Chat::Red, "Memorization interrupted.");
+		m_aot_pending_spell_id = 0xFFFFFFFF;
+		m_aot_memorize_timer.Disable();
+		m_aot_loadout_queue.clear();
+		return;
+	}
+
+	if (m_aot_memorize_timer.Check()) {
+		if (IsValidSpell(m_aot_pending_spell_id))
+			MemSpell(m_aot_pending_spell_id, m_aot_pending_gem_slot);
+		m_aot_pending_spell_id = 0xFFFFFFFF;
+
+		if (!m_aot_loadout_queue.empty()) {
+			auto [spell_id, gem_slot] = m_aot_loadout_queue.front();
+			m_aot_loadout_queue.erase(m_aot_loadout_queue.begin());
+			m_aot_pending_spell_id = spell_id;
+			m_aot_pending_gem_slot = gem_slot;
+			m_aot_memorize_timer.Start(RuleI(AoT, MemorizeDelayMs));
+			Message(Chat::White, "Memorizing %s...", spells[spell_id].name);
+		}
+	}
 }
 
 void Client::Handle_OP_AoTSyncPendingRolls(const EQApplicationPacket *app)
@@ -17593,4 +17677,144 @@ void Client::Handle_OP_AoTSyncDiscovered(const EQApplicationPacket *app)
 	memcpy(outapp->pBuffer, payload.c_str(), payload.size() + 1);
 	QueuePacket(outapp);
 	safe_delete(outapp);
+}
+
+void Client::Handle_OP_AoTSaveLoadout(const EQApplicationPacket *app)
+{
+	if (app->size < sizeof(AoTSaveLoadout_Struct)) return;
+	auto *m = (AoTSaveLoadout_Struct *)app->pBuffer;
+	if (m->slot >= 2) {
+		Message(Chat::White, "Invalid loadout slot.");
+		return;
+	}
+
+	const uint32 char_id = CharacterID();
+
+	// Read all 8 gem slots from live player profile
+	uint32 gems[8];
+	for (int i = 0; i < 8; i++)
+		gems[i] = m_pp.mem_spells[i];
+
+	database.QueryDatabase(
+		fmt::format(
+			"INSERT INTO `aot_character_loadouts` "
+			"(`char_id`,`slot`,`gem0`,`gem1`,`gem2`,`gem3`,`gem4`,`gem5`,`gem6`,`gem7`) "
+			"VALUES ({},{},{},{},{},{},{},{},{},{}) "
+			"ON DUPLICATE KEY UPDATE "
+			"gem0=VALUES(gem0),gem1=VALUES(gem1),gem2=VALUES(gem2),gem3=VALUES(gem3),"
+			"gem4=VALUES(gem4),gem5=VALUES(gem5),gem6=VALUES(gem6),gem7=VALUES(gem7)",
+			char_id, (int)m->slot,
+			gems[0], gems[1], gems[2], gems[3],
+			gems[4], gems[5], gems[6], gems[7])
+	);
+
+	Message(Chat::White, "Spell set %c saved.", 'A' + m->slot);
+}
+
+void Client::Handle_OP_AoTApplyLoadout(const EQApplicationPacket *app)
+{
+	if (app->size < sizeof(AoTApplyLoadout_Struct)) return;
+	auto *m = (AoTApplyLoadout_Struct *)app->pBuffer;
+	if (m->slot >= 2) {
+		Message(Chat::White, "Invalid loadout slot.");
+		return;
+	}
+
+	if (!IsSitting()) {
+		Message(Chat::White, "You must be sitting to load a spell set.");
+		return;
+	}
+
+	// Cancel any in-progress memorization
+	m_aot_pending_spell_id = 0xFFFFFFFF;
+	m_aot_memorize_timer.Disable();
+	m_aot_loadout_queue.clear();
+
+	auto results = database.QueryDatabase(
+		fmt::format(
+			"SELECT gem0,gem1,gem2,gem3,gem4,gem5,gem6,gem7 "
+			"FROM `aot_character_loadouts` WHERE char_id={} AND slot={}",
+			CharacterID(), (int)m->slot)
+	);
+	if (!results.Success() || results.RowCount() == 0) {
+		Message(Chat::White, "No spell set saved in slot %c.", 'A' + m->slot);
+		return;
+	}
+
+	auto row = results.begin();
+	uint32 gems[8];
+	for (int i = 0; i < 8; i++)
+		gems[i] = (uint32)Strings::ToUnsignedInt(row[i]);
+
+	// Unmem gems that differ from the desired set
+	for (int i = 0; i < 8; i++) {
+		uint32 current = m_pp.mem_spells[i];
+		if (current != 0xFFFFFFFF && current != gems[i])
+			UnmemSpell(i, true);
+	}
+
+	// Queue gems that need to be memorized
+	for (int i = 0; i < 8; i++) {
+		if (gems[i] == 0xFFFFFFFF || !IsValidSpell(gems[i])) continue;
+		if (m_pp.mem_spells[i] == gems[i]) continue; // already correct
+		m_aot_loadout_queue.push_back({gems[i], (uint8)i});
+	}
+
+	if (m_aot_loadout_queue.empty()) {
+		Message(Chat::White, "Spell set %c loaded.", 'A' + m->slot);
+		return;
+	}
+
+	// Kick off the first gem in the queue
+	auto [spell_id, gem_slot] = m_aot_loadout_queue.front();
+	m_aot_loadout_queue.erase(m_aot_loadout_queue.begin());
+	m_aot_pending_spell_id = spell_id;
+	m_aot_pending_gem_slot = gem_slot;
+	m_aot_memorize_timer.Start(RuleI(AoT, MemorizeDelayMs));
+	Message(Chat::White, "Loading spell set %c... sit still. (%zu gem(s) to memorize)",
+	        'A' + m->slot, m_aot_loadout_queue.size() + 1);
+}
+
+void Client::Handle_OP_AoTLoadSpellSet(const EQApplicationPacket *app)
+{
+	if (app->size < sizeof(AoTLoadSpellSet_Struct)) return;
+
+	// Cancel any in-progress memorization
+	m_aot_pending_spell_id = 0xFFFFFFFF;
+	m_aot_memorize_timer.Disable();
+	m_aot_loadout_queue.clear();
+
+	auto *m = (AoTLoadSpellSet_Struct *)app->pBuffer;
+
+	// Unmem gems that conflict with the desired set.
+	// 0xFFFFFFFF slots are not specified — leave whatever is there alone.
+	for (int i = 0; i < 9; i++) {
+		uint32 current = m_pp.mem_spells[i];
+		if (current == 0xFFFFFFFF) continue;
+		uint32 desired = m->spell[i];
+		if (desired == 0xFFFFFFFF) continue;
+		if (current != desired)
+			UnmemSpell(i, true);
+	}
+
+	// Queue gems that need to be memorized
+	for (int i = 0; i < 9; i++) {
+		uint32 desired = m->spell[i];
+		if (desired == 0xFFFFFFFF || !IsValidSpell(desired)) continue;
+		if (m_pp.mem_spells[i] == desired) continue;
+		m_aot_loadout_queue.push_back({desired, (uint8)i});
+	}
+
+	if (m_aot_loadout_queue.empty()) {
+		Message(Chat::White, "Spell set loaded.");
+		return;
+	}
+
+	auto [spell_id, gem_slot] = m_aot_loadout_queue.front();
+	m_aot_loadout_queue.erase(m_aot_loadout_queue.begin());
+	m_aot_pending_spell_id = spell_id;
+	m_aot_pending_gem_slot = gem_slot;
+	m_aot_memorize_timer.Start(RuleI(AoT, MemorizeDelayMs));
+	Message(Chat::White, "Loading spell set... sit still. (%zu gem(s) to memorize)",
+	        m_aot_loadout_queue.size() + 1);
 }

@@ -1548,7 +1548,7 @@ void Mob::SendHPUpdate(bool force_update_all, bool send_to_self)
 				auto b = (SpawnHPUpdate_Struct*) p.pBuffer;
 				b->cur_hp   = static_cast<uint32>(CastToClient()->GetHP() - itembonuses.HP);
 				b->spawn_id = GetID();
-				b->max_hp   = CastToClient()->GetMaxHP() - itembonuses.HP;
+				b->max_hp   = CastToClient()->GetMaxHP();
 				CastToClient()->QueuePacket(&p);
 			}
 

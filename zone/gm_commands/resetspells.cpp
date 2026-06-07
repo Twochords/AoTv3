@@ -9,9 +9,9 @@ void command_resetspells(Client *c, const Seperator *sep)
 
 	const uint32 char_id = t->CharacterID();
 
-	// Collect tiers before deleting so we can unscribe from the real spellbook.
+	// Collect tier slots before deleting so we can unscribe from the real spellbook.
 	auto tier_results = database.QueryDatabase(
-		fmt::format("SELECT `tier` FROM `aot_character_spells` WHERE `char_id`={}", char_id)
+		fmt::format("SELECT `level` FROM `aot_character_spells` WHERE `char_id`={}", char_id)
 	);
 
 	database.QueryDatabase(

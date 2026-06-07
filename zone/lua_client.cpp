@@ -83,6 +83,11 @@ void Lua_Client::WorldKick() {
 	self->WorldKick();
 }
 
+void Lua_Client::AoTRebirth() {
+	Lua_Safe_Call_Void();
+	self->AoTRebirth();
+}
+
 int Lua_Client::GetAFK() {
 	Lua_Safe_Call_Int();
 	return self->GetAFK();
@@ -4244,7 +4249,8 @@ luabind::scope lua_register_client() {
 	.def("UpdateTaskActivity", (void(Lua_Client::*)(int,int,int))&Lua_Client::UpdateTaskActivity)
 	.def("UseDiscipline", (bool(Lua_Client::*)(int,int))&Lua_Client::UseDiscipline)
 	.def("UseAugmentContainer", (void(Lua_Client::*)(int))&Lua_Client::UseAugmentContainer)
-	.def("WorldKick", (void(Lua_Client::*)(void))&Lua_Client::WorldKick);
+	.def("WorldKick", (void(Lua_Client::*)(void))&Lua_Client::WorldKick)
+	.def("AoTRebirth", (void(Lua_Client::*)(void))&Lua_Client::AoTRebirth);
 }
 
 luabind::scope lua_register_inventory_where() {

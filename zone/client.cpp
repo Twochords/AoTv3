@@ -879,6 +879,280 @@ void Client::SendZoneInPackets()
 
 	//No idea why live sends this if even were not in a guild
 	SendGuildMOTD();
+
+	SendAoTStatBlock();
+}
+
+void Client::SendAoTStatBlock()
+{
+	AoT_StatBlock_Struct sb;
+	memset(&sb, 0, sizeof(sb));
+
+	const int mit    = ACSum();
+	const int level  = static_cast<int>(GetLevel());
+	// Standard opponent: offense = 50 + 5*level (assumed DEX=50 for level-matched mob)
+	const int std_off = 50 + 5 * level;
+
+	const double floor_ac_coeff = RuleR(AoT, MitFloorAcCoeff);
+	const double off_scalar     = RuleR(AoT, MitOffScalar);
+	const double ac_dr          = RuleR(AoT, MitAcDR);
+	// Deflect condition: rolled_mit >= 1.0 → used_ac >= deflect_ratio * used_off
+	const double deflect_ratio  = off_scalar / (1.0 - ac_dr);
+
+	sb.ac_mitigation = mit;
+
+	// Min Mit % — mitigation floor when offense dominates vs standard opponent.
+	// Formula: mit / (floor_coeff*mit + off_scalar*off), stored as fraction * 10000.
+	// e.g., 0.2850 → 2850 (display as "28.5%")
+	{
+		const double denom  = floor_ac_coeff * static_cast<double>(mit) +
+		                      off_scalar     * static_cast<double>(std_off);
+		const double min_mit = (denom > 0.0) ? static_cast<double>(mit) / denom : 0.0;
+		sb.min_mit_pct_x100 = static_cast<int32_t>(min_mit * 10000.0);
+	}
+
+	// Deflect % — continuous area approximation (O(1)).
+	// Deflection region in the off×ac rectangle is a right triangle plus optional rectangle.
+	// Triangle: height = min(ac, r*off), area = h² / (2r).
+	// Rectangle (only when ac > r*off): area = (ac - r*off) * off.
+	// P = (triangle + rectangle) / (ac * off).
+	{
+		const double ac_d  = static_cast<double>(mit + 6);
+		const double off_d = static_cast<double>(std_off + 6);
+		const double r_off = deflect_ratio * off_d;
+		const double tri_h = (ac_d < r_off) ? ac_d : r_off;
+		const double triangle_area = (tri_h * tri_h) / (2.0 * deflect_ratio);
+		const double rect_area     = (ac_d > r_off) ? (ac_d - r_off) * off_d : 0.0;
+		const double deflect_pct   = (triangle_area + rect_area) / (ac_d * off_d);
+		sb.deflect_pct_x100 = static_cast<int32_t>(deflect_pct * 10000.0);
+	}
+
+	// Avoidance score and avoid % vs standard opponent.
+	// Dice system: 3 defender dice [1, avoidance+5] vs 4 attacker dice [1, accuracy+5].
+	// Defender needs >= 2 of 3 wins; p²(3-2p) = P(>= 2 wins) with independent p each.
+	// Attacker 4-die advantage approximated by scaling effective range by sqrt(4/3) ≈ 1.155.
+	{
+		const int avoidance_val = GetTotalDefense();
+		sb.avoidance_score = avoidance_val;
+
+		// Standard opponent accuracy mirrors standard offense
+		const int std_acc = 50 + 5 * level;
+		const double def_range     = static_cast<double>(avoidance_val + 5);
+		const double atk_eff_range = static_cast<double>(std_acc + 5) * std::sqrt(4.0 / 3.0);
+
+		double p;
+		if (def_range <= atk_eff_range)
+			p = def_range / (2.0 * atk_eff_range);
+		else
+			p = 1.0 - atk_eff_range / (2.0 * def_range);
+
+		const double avoid_pct = p * p * (3.0 - 2.0 * p);
+		sb.avoid_pct_x100 = static_cast<int32_t>(avoid_pct * 10000.0);
+	}
+
+	sb.critable = HasShieldEquipped() ? 0 : 1;
+
+	// GetHaste() is already capped internally by Character::HasteCap in CalcHaste.
+	// Clamp again to AoT::MeleeHasteCap so the rule drives the displayed ceiling.
+	const int capped_haste = std::min(GetHaste(), 100 + RuleI(AoT, MeleeHasteCap));
+	sb.melee_haste_x100 = capped_haste * 100;
+
+	// Weapon sections (primary, secondary, ranged).
+	// Empty primary → H2H fist. Empty secondary or ranged → N/A (valid=0).
+	// Non-weapon items (shield, armor) → N/A. Weapon with Damage=0 → N/A.
+	{
+		const double sqrt_4_3 = std::sqrt(4.0 / 3.0);
+		const int    all_sk   = EQ::skills::HIGHEST_SKILL + 1;
+		const int    atk_bonus = IsOfClientBotMerc() ? GetATKBonus() : GetATK();
+
+		struct WpnSection {
+			int32_t max_hit = 0, offense = 0, accuracy = 0;
+			int32_t hit_pct_x100 = 0, crit_pct_x1000 = 0, crit_dmg_pct_x100 = 0;
+			int32_t delay_x100 = 0, dps_x100 = 0;
+			uint8_t valid = 0;
+		};
+
+		auto fill_wpn = [&](int slot_id, bool fist_if_empty) -> WpnSection {
+			WpnSection w;
+			const EQ::ItemInstance* inst = GetInv().GetItem(slot_id);
+			const EQ::ItemData*     item = inst ? inst->GetItem() : nullptr;
+
+			EQ::skills::SkillType skill;
+			int base_damage, base_delay;
+			bool is_ranged;
+
+			if (item) {
+				switch (item->ItemType) {
+					case EQ::item::ItemType1HSlash:        skill = EQ::skills::Skill1HSlashing; break;
+					case EQ::item::ItemType2HSlash:        skill = EQ::skills::Skill2HSlashing; break;
+					case EQ::item::ItemType1HPiercing:     skill = EQ::skills::Skill1HPiercing; break;
+					case EQ::item::ItemType2HPiercing:     skill = EQ::skills::Skill2HPiercing; break;
+					case EQ::item::ItemType1HBlunt:        skill = EQ::skills::Skill1HBlunt;    break;
+					case EQ::item::ItemType2HBlunt:        skill = EQ::skills::Skill2HBlunt;    break;
+					case EQ::item::ItemTypeBow:            skill = EQ::skills::SkillArchery;    break;
+					case EQ::item::ItemTypeLargeThrowing:
+					case EQ::item::ItemTypeSmallThrowing:  skill = EQ::skills::SkillThrowing;  break;
+					default: return w; // shield, armor, etc. → valid=0
+				}
+				if (item->Damage <= 0) return w;
+				base_damage = item->Damage + (spellbonuses.WeaponDamageFlatBonus > 0 ? spellbonuses.WeaponDamageFlatBonus : 0);
+				base_delay  = item->Delay;
+				is_ranged   = (skill == EQ::skills::SkillArchery || skill == EQ::skills::SkillThrowing);
+			} else {
+				if (!fist_if_empty) return w;
+				base_delay  = GetHandToHandDelay();
+				base_damage = GetHandToHandDamage(base_delay);
+				skill       = EQ::skills::SkillHandtoHand;
+				is_ranged   = false;
+			}
+
+			w.valid = 1;
+
+			// Max hit: item damage * stat scaling (STR for melee, DEX for ranged)
+			const int dmg_stat = is_ranged ? GetDEX() : GetSTR();
+			const double stat_mult = std::max(0.5, (static_cast<double>(dmg_stat) - 25.0) * 0.02);
+			w.max_hit = static_cast<int32_t>(static_cast<double>(base_damage) * stat_mult);
+
+			// Offense: 5*level + primary_stat + ATK (mirrors MeleeMitigation formula)
+			w.offense  = 5 * level + (is_ranged ? GetDEX() : GetSTR()) + atk_bonus;
+			w.accuracy = GetTotalToHit(skill, 0);
+
+			// Hit %: 1 - P(std opponent avoids) — player has 4-die advantage (sqrt(4/3))
+			{
+				const double atk_eff = static_cast<double>(w.accuracy + 5) * sqrt_4_3;
+				const double def_rng = static_cast<double>(std_off + 5);
+				const double p = (def_rng <= atk_eff) ? def_rng / (2.0 * atk_eff)
+				                                       : 1.0 - atk_eff / (2.0 * def_rng);
+				w.hit_pct_x100 = static_cast<int32_t>((1.0 - p * p * (3.0 - 2.0 * p)) * 10000.0);
+			}
+
+			// Crit %: 4-dice frontal formula; Inspiration (5-dice) pending SPA assignment
+			{
+				const double A = static_cast<double>(w.accuracy + 5);
+				const double D = static_cast<double>(std_off + 5);
+				double cp;
+				if (A <= D) {
+					const double r = A / D;
+					cp = r * r * r / 35.0;
+				} else {
+					const double R = D / A;
+					cp = 1.0 - 3.0*R + 18.0*R*R/5.0 - 2.0*R*R*R + 3.0*R*R*R*R/7.0;
+				}
+				w.crit_pct_x1000 = static_cast<int32_t>(cp * 100000.0);
+			}
+
+			// Crit DMG %: 200% base + skill-specific and all-skill mods (stored as x100)
+			{
+				const int crit_mod =
+					itembonuses.CritDmgMod[skill]   + spellbonuses.CritDmgMod[skill]   + aabonuses.CritDmgMod[skill] +
+					itembonuses.CritDmgMod[all_sk]  + spellbonuses.CritDmgMod[all_sk]  + aabonuses.CritDmgMod[all_sk];
+				w.crit_dmg_pct_x100 = (200 + crit_mod) * 100;
+			}
+
+			// Delay: haste-adjusted, stored as hundredths of a second (40 = 0.40s, 400 = 4.00s)
+			w.delay_x100 = static_cast<int32_t>(static_cast<double>(base_delay) * 1000.0
+			                                    / static_cast<double>(capped_haste));
+
+			// DPS = (hit_pct + crit_pct * (crit_dmg_pct - 1)) * max_hit / delay_s
+			if (w.delay_x100 > 0) {
+				const double hit_pct  = w.hit_pct_x100        / 10000.0;
+				const double crit_pct = w.crit_pct_x1000      / 100000.0;
+				const double crit_dmg = w.crit_dmg_pct_x100   / 10000.0;
+				const double delay_s  = w.delay_x100          / 100.0;
+				const double dps = (hit_pct + crit_pct * (crit_dmg - 1.0))
+				                   * static_cast<double>(w.max_hit) / delay_s;
+				w.dps_x100 = static_cast<int32_t>(dps * 100.0);
+			}
+
+			return w;
+		};
+
+		// Primary — fist when empty
+		{
+			auto w = fill_wpn(EQ::invslot::slotPrimary, true);
+			sb.wpn_max_hit          = w.max_hit;
+			sb.wpn_offense          = w.offense;
+			sb.wpn_accuracy         = w.accuracy;
+			sb.wpn_hit_pct_x100     = w.hit_pct_x100;
+			sb.wpn_crit_pct_x1000   = w.crit_pct_x1000;
+			sb.wpn_crit_dmg_pct_x100= w.crit_dmg_pct_x100;
+			sb.wpn_delay_x100       = w.delay_x100;
+			sb.wpn_dps_x100         = w.dps_x100;
+			sb.wpn_valid            = w.valid;
+		}
+
+		// Secondary — N/A when empty (shield, bare off-hand not tracked separately)
+		{
+			auto w = fill_wpn(EQ::invslot::slotSecondary, false);
+			sb.sec_max_hit          = w.max_hit;
+			sb.sec_offense          = w.offense;
+			sb.sec_accuracy         = w.accuracy;
+			sb.sec_hit_pct_x100     = w.hit_pct_x100;
+			sb.sec_crit_pct_x1000   = w.crit_pct_x1000;
+			sb.sec_crit_dmg_pct_x100= w.crit_dmg_pct_x100;
+			sb.sec_delay_x100       = w.delay_x100;
+			sb.sec_dps_x100         = w.dps_x100;
+			sb.sec_valid            = w.valid;
+		}
+
+		// Ranged — N/A when empty
+		{
+			auto w = fill_wpn(EQ::invslot::slotRange, false);
+			sb.rng_max_hit          = w.max_hit;
+			sb.rng_offense          = w.offense;
+			sb.rng_accuracy         = w.accuracy;
+			sb.rng_hit_pct_x100     = w.hit_pct_x100;
+			sb.rng_crit_pct_x1000   = w.crit_pct_x1000;
+			sb.rng_crit_dmg_pct_x100= w.crit_dmg_pct_x100;
+			sb.rng_delay_x100       = w.delay_x100;
+			sb.rng_dps_x100         = w.dps_x100;
+			sb.rng_valid            = w.valid;
+		}
+	}
+
+	// Cast speed — spell haste is a per-cast focus effect with no global accumulator; send baseline
+	sb.cast_speed_x100 = 10000;
+
+	// Spell stats
+	{
+		const int spell_crit_pct =
+			RuleI(Spells, BaseCritChance) +
+			itembonuses.CriticalSpellChance + spellbonuses.CriticalSpellChance + aabonuses.CriticalSpellChance;
+		sb.spell_crit_pct_x1000 = spell_crit_pct * 10;
+
+		// INT neutral at 75 (1.0×), 2%/point, floor at stat 35 (20%)
+		const int32_t spell_potency = std::max(2000, 10000 + (GetINT() - 75) * 200) + itembonuses.SpellDmg;
+		const int32_t dc            = GetCHA() / 5;
+		for (int i = 0; i < 6; ++i) {
+			sb.spell_dc[i]           = dc;
+			sb.spell_potency_x100[i] = spell_potency;
+		}
+	}
+
+	// Heal stats
+	{
+		const int heal_crit_pct =
+			itembonuses.CriticalHealChance + spellbonuses.CriticalHealChance + aabonuses.CriticalHealChance;
+		sb.heal_crit_pct_x1000 = heal_crit_pct * 10;
+
+		// WIS neutral at 75 (1.0×), 2%/point, floor at stat 35 (20%)
+		const int32_t heal_potency  = std::max(2000, 10000 + (GetWIS() - 75) * 200) + itembonuses.HealAmt;
+		sb.heal_potency_direct_x100 = heal_potency;
+		sb.heal_potency_hot_x100    = heal_potency;
+		sb.heal_potency_rune_x100   = heal_potency;
+	}
+
+	// Threat modifier: CHA 75 is neutral; above reduces threat, below increases it
+	sb.threat_mod_x100 = -(GetCHA() - 75) * 5;
+
+	auto outapp = new EQApplicationPacket(OP_AoTStatBlock, sizeof(AoT_StatBlock_Struct));
+	memcpy(outapp->pBuffer, &sb, sizeof(AoT_StatBlock_Struct));
+	QueuePacket(outapp);
+	safe_delete(outapp);
+
+	SendHPUpdate(true);
+	SendManaUpdate();
+	SendEnduranceUpdate();
 }
 
 void Client::SendLogoutPackets() {
@@ -13330,4 +13604,62 @@ bool Client::UncompleteTask(int task_id)
 	);
 
 	return task_state->UncompleteTask(task_id);
+}
+
+void Client::AoTRebirth()
+{
+	const uint32 char_id   = CharacterID();
+	const uint8  run_level = GetLevel();
+
+	// Wipe AoT spell tables; collect tier slots first for PP sync
+	auto level_results = database.QueryDatabase(
+		fmt::format("SELECT `level` FROM `aot_character_spells` WHERE `char_id`={}", char_id)
+	);
+	database.QueryDatabase(
+		fmt::format("DELETE FROM `aot_character_spells` WHERE `char_id`={}", char_id)
+	);
+	database.QueryDatabase(
+		fmt::format("DELETE FROM `aot_character_discovered` WHERE `char_id`={}", char_id)
+	);
+	database.QueryDatabase(
+		fmt::format("DELETE FROM `aot_pending_rolls` WHERE `char_id`={}", char_id)
+	);
+
+	// Sync m_pp.spell_book[] to match cleared DB rows
+	if (level_results.Success()) {
+		for (auto row = level_results.begin(); row != level_results.end(); ++row) {
+			UnscribeSpell(Strings::ToInt(row[0]) - 1, false);
+		}
+	}
+
+	UnmemSpellAll(false);
+
+	// Wipe all possessions (equipment + bags + cursor); bank slots (>= 2000) are untouched.
+	// update_db=true on every call so deletions persist — without it items come back on reconnect.
+	for (int i = EQ::invslot::POSSESSIONS_BEGIN; i <= EQ::invslot::POSSESSIONS_END; ++i) {
+		const auto* item = GetInv().GetItem(i);
+		if (!item) { continue; }
+
+		if (item->IsClassBag() && i >= EQ::invslot::GENERAL_BEGIN && i <= EQ::invslot::slotCursor) {
+			for (int16 sub = EQ::invbag::SLOT_BEGIN; sub <= EQ::invbag::SLOT_END; ++sub) {
+				int16 bag_slot = EQ::InventoryProfile::CalcSlotId(i, sub);
+				if (GetInv().GetItem(bag_slot)) {
+					DeleteItemInInventory(bag_slot, 0, true, true);
+				}
+			}
+		}
+		DeleteItemInInventory(i, 0, true, true);
+	}
+
+	// Reset to level 1 (also resets m_pp.exp to 0)
+	SetLevel(1, true);
+
+	// Award 1 AA per level reached above 1 this run
+	if (run_level > 1) {
+		AddAAPoints(run_level - 1);
+	}
+
+	Message(Chat::Yellow, "You have been reborn. Your journey begins anew.");
+
+	MovePC(302, 0, 0.0f, 0.0f, 0.0f, 0.0f, 1, ZoneToSafeCoords);
 }
