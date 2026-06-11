@@ -357,7 +357,10 @@ All mob drops: `nodrop=1, norent=1`, stackable. Named mobs (name not starting wi
 | 760137 | Satchel_Merchant | Satchel Merchant | 41 | 1000024 | 6 bags/containers |
 | 760138 | Parcel_Courier | Parcels and General Supplies | 41 | 1000025 | 3 basic supplies; lastname triggers parcel UI tab |
 | 760139 | General_Merchant | General Supplies | 41 | 1000026 | 11 items: food, water, bandages, arrows, bags, sewing kit |
-| 760140 | Tradeskill_Merchant | Tradeskill Supplies | 41 | 1000023 | 16 patterns (all tiers) |
+| 760140 | Tradeskill_Merchant | Tradeskill Supplies | 41 | 1000023 | 16 armor patterns (all tiers) |
+| 760141 | Weapon_Molds_Merchant | Weapon Molds | 41 | 1000027 | 64 weapon/shield/bow molds (all tiers) |
+| 760142 | Gem_Merchant | Gem Supplies | 41 | 1000028 | Lapidary molds + gem polish (all tiers) |
+| 760143 | Gem_Cutter | Gem Cutting Supplies | 41 | 1000029 | Grindstones + augment settings (all tiers) |
 
 All modeled after An_Emberwatch_Guard (NPC 998038): race=413, size=9, 100k HP, level 48.
 
@@ -665,6 +668,367 @@ Weapon mold IDs within each tier follow weapon ordering: Long Sword (+0), Short 
 - 60 finished weapons (14 weapon types × 4 tiers)
 - 4 shields, 4 bows
 - 78 total recipes
+
+### Accessory Crafting System (Lapidary)
+
+Migration files: `/src/sql/lapidary/`
+
+Produces wearable accessories (Ring, Earring, Necklace, Mask, Belt, Cloak) with resist-focused stats. Uses Jewelry Making skill (tradeskill=61). Separate system from Gem Cutting — different container, different output type. Maximum Jewelry Making skill = **200** (shared with Gem Cutting).
+
+#### Container
+
+| Field | Value |
+|-------|-------|
+| Container item ID | 147872 (Lapidary's Workbench) |
+| World object | zoneid=302 (draniksscar), placed at (-341.73, 1555.96, -247.99) |
+| Visual | IT11543_ACTORDEF (Jewelry Making Table) |
+
+All Lapidary recipe entries reference `item_id=147872, iscontainer=1`.
+
+#### Service NPC
+
+| NPC ID | Name | Merchant ID | Sells |
+|--------|------|-------------|-------|
+| 760142 | Gem_Merchant | 1000028 | Molds (slots 0–31) + gem polish + settings (slots 0–31) |
+
+Mold prices: T1=5pp, T2=25pp, T3=100pp, T4=500pp.
+
+#### ID Allocations
+
+| Type | Range | Notes |
+|------|-------|-------|
+| Items (T1) | 147872–147897 | Workbench=147872; drops=147873–147877; molds=147878–147883; setting=147884; intermediates=147885–147891; accessories=147892–147897 |
+| Items (T2) | 147898–147926 | drops=147898–147903; molds=147904–147909; setting=147910; intermediates=147911–147920; accessories=147921–147926 |
+| Items (T3) | 147927–147955 | drops=147927–147932; molds=147933–147938; setting=147939; intermediates=147940–147949; accessories=147950–147955 |
+| Items (T4) | 147956–147984 | drops=147956–147961; molds=147962–147967; setting=147968; intermediates=147969–147978; accessories=147979–147984 |
+| Recipes (T1) | 31379–31391 | 13 recipes |
+| Recipes (T2) | 31392–31407 | 16 recipes |
+| Recipes (T3) | 31408–31423 | 16 recipes |
+| Recipes (T4) | 31424–31439 | 16 recipes |
+| Lootdrops | 992049–992071 | T1: 992049–992053; T2: 992054–992059; T3: 992060–992065; T4: 992066–992071 |
+
+#### Migration Files
+
+| File | Contents |
+|------|---------|
+| `sql/20260606_lapidary_workbench.sql` | Container item + world object |
+| `sql/20260606_lapidary_merchant.sql` | NPC 760142 |
+| `sql/lapidary/050_lapidary_t1_weathered.sql` | T1 items + recipes + entries + loot |
+| `sql/lapidary/051_lapidary_t2_reinforced.sql` | T2 items + recipes + entries + loot |
+| `sql/lapidary/052_lapidary_t3_tempered.sql` | T3 items + recipes + entries + loot |
+| `sql/lapidary/053_lapidary_t4_ascendant.sql` | T4 items + recipes + entries + loot |
+
+#### Crafting Chain
+
+All accessories share a common chain structure. Metal components use Minor Tempering Flux (T1, id=147506) as a shared catalyst with armor/weapon smithing.
+
+```
+Raw Stone Chip × 2 + Gem Polish → Chipped Quartz → Polished Stone
+Tarnished Copper Flake × 2 + Flux → Hammered Copper Strip → Copper Band / Frame / Chain
+Polished Stone + Setting (salvages) → Rough Stone Setting
+Rough Stone Setting + [Band/Frame/Chain] + Mold (salvages) + Gem Polish → Accessory
+```
+
+Belt and Cloak use slightly different combine components (clasps instead of frames/chains).
+
+#### Gem Polish (shared with Gem Cutting)
+
+| Tier | Item | ID |
+|------|------|----|
+| T1 | Minor Gem Polish | 147875 |
+| T2 | Standard Gem Polish | 147901 |
+| T3 | Superior Gem Polish | 147930 |
+| T4 | Prime Gem Polish | 147959 |
+
+These items drop from mobs and are also sold on merchant list 1000028.
+
+#### Accessory Stats
+
+Stats double each tier. All accessories: `nodrop=0, norent=0`, freely tradeable.
+
+| Slot | T1 | T2 | T3 | T4 |
+|------|----|----|----|----|
+| Ring | all resists +1 | +2 | +4 | +8 |
+| Earring | all resists +1 | +2 | +4 | +8 |
+| Necklace | all resists +1 | +2 | +4 | +8 |
+| Mask | MR+2, others +1 | MR+4, others +2 | MR+8, others +4 | MR+16, others +8 |
+| Belt | CR+1, PR+1 only | CR+2, PR+2 | CR+4, PR+4 | CR+8, PR+8 |
+| Cloak | all resists +2 | +4 | +8 | +16 |
+
+#### Trivial Progression
+
+| Stage | T1 | T2 | T3 | T4 |
+|-------|----|----|----|----|
+| First refinement (quartz/strip) | 25–30 | 75–80 | 115–120 | 145–150 |
+| Intermediates | 40–55 | 90–105 | 130–145 | 155–170 |
+| Simple accessories (ring/earring) | 65 | 115 | 155 | 180 |
+| Complex accessories (necklace/mask) | 70–75 | 120–125 | 160–165 | 185–188 |
+| Belt | 80 | 130 | 170 | 192 |
+| Cloak | 100 | 145 | 185 | 200 |
+
+#### Drop System
+
+All mob drops: `nodrop=0, norent=0`, stackable. Drop rate: 15% for stone/metal drops, 10% for clasps and polish.
+
+| Lootdrop ID | Item | Rate | Tier |
+|-------------|------|------|------|
+| 992049 | Dull Stone Chip | 15% | T1 |
+| 992050 | Tarnished Copper Flake | 15% | T1 |
+| 992051 | Minor Gem Polish | 10% | T1 |
+| 992052 | Crude Chain Clasp | 5% | T1 |
+| 992053 | Crude Gem Clasp | 5% | T1 |
+| 992054 | Clouded Sapphire Chip | 15% | T2 |
+| 992055 | Pale Ruby Shard | 15% | T2 |
+| 992056 | Rough Silver Nugget | 15% | T2 |
+| 992057 | Standard Gem Polish | 10% | T2 |
+| 992058 | Iron Chain Clasp | 5% | T2 |
+| 992059 | Silver Gem Clasp | 5% | T2 |
+| 992060 | Cracked Emerald | 15% | T3 |
+| 992061 | Hazy Diamond Shard | 15% | T3 |
+| 992062 | Electrum Grain | 15% | T3 |
+| 992063 | Superior Gem Polish | 10% | T3 |
+| 992064 | Tempered Chain Clasp | 5% | T3 |
+| 992065 | Electrum Gem Clasp | 5% | T3 |
+| 992066 | Raw Celestial Gem | 15% | T4 |
+| 992067 | Arcane Stone Core | 15% | T4 |
+| 992068 | Mithril Dust | 15% | T4 |
+| 992069 | Prime Gem Polish | 10% | T4 |
+| 992070 | Ascendant Chain Clasp | 5% | T4 |
+| 992071 | Mithril Gem Clasp | 5% | T4 |
+
+#### Item Counts
+
+- 20 drop items (5 per tier)
+- 24 molds (6 slots × 4 tiers, vendor-sold)
+- 4 settings (1 per tier, vendor-sold, salvages on fail)
+- 28 intermediates (7 per tier)
+- 24 finished accessories (6 slots × 4 tiers)
+- 61 total recipes
+
+---
+
+### Crafted Gear Augment Slots
+
+Migration: `sql/20260606_crafted_augment_slots.sql`
+
+All finished crafted items — armor, weapons, and accessories — have augment slots added via UPDATE after their items are created.
+
+#### Slot Rules by Tier
+
+| Tier | Slots | DB fields |
+|------|-------|-----------|
+| T1 Weathered | 1 | `augslot1type=10, augslot1visible=1` |
+| T2 Reinforced | 1 | `augslot1type=10, augslot1visible=1` |
+| T3 Tempered | 2 | `augslot1type=10, augslot1visible=1, augslot2type=10, augslot2visible=1` |
+| T4 Ascendant | 2 | `augslot1type=10, augslot1visible=1, augslot2type=10, augslot2visible=1` |
+
+#### Slot Type Strategy
+
+Augment slot type **10** (`augslot1type=10`) is a custom slot not used by any retail EQ item. This isolates the entire custom augment economy — no retail augment can be inserted into custom gear, and no custom augment can be inserted into retail gear.
+
+Augments that fit these slots must have `augtype=512` (bitmask: `1 << 9 = 512`). All Gem Cutting augments use this value.
+
+#### Item Ranges Affected
+
+| System | Item Range | Guard |
+|--------|------------|-------|
+| Armor Smithing | 147520–147679 | `slots != 0` (excludes non-wearable IDs in range) |
+| Weapon Smithing | 147800–147855 (weapons) + 147860–147863 (shields) + 147868–147871 (bows) | none needed |
+| Accessory Crafting | 147892–147897 (T1), 147921–147926 (T2), 147950–147955 (T3), 147979–147984 (T4) | none needed |
+
+---
+
+### Gem Cutting / Augmentation System
+
+Migration files: `/src/sql/gemcutting/`
+
+Produces augments for all crafted tradeskill gear. Entirely separate from Accessory Crafting — different container, output is augment items (itemtype=54) not wearable gear. Uses Jewelry Making skill (tradeskill=61, shared with Lapidary).
+
+#### Container
+
+| Field | Value |
+|-------|-------|
+| Container item ID | 147985 (Gem Cutting Station) |
+| World object | zoneid=302 (draniksscar), placed at (-350.0, 1624.0, -245.14) |
+| Visual | IT11544_ACTORDEF (Tinkering Table) |
+
+All Gem Cutting recipe entries reference `item_id=147985, iscontainer=1`.
+
+#### Service NPC
+
+| NPC ID | Name | Merchant ID | Sells |
+|--------|------|-------------|-------|
+| 760143 | Gem_Cutter | 1000029 | Grindstones T1–T4 (slots 0–3) + Settings T1–T4 (slots 4–7) |
+
+Prices match armor pattern system: T1=5pp, T2=25pp, T3=100pp, T4=500pp. Gem polish is NOT sold here — buy from Gem_Merchant (760142).
+
+#### Augment Item Rules
+
+All finished Gem Cutting augments share these fields:
+
+| Field | Value | Notes |
+|-------|-------|-------|
+| `itemtype` | 54 | Augment item type |
+| `augtype` | 512 | Fits slot type 10 on all crafted items |
+| `augrestrict` | 0 | No item-type restriction — fits armor, weapons, accessories |
+| `augdistiller` | 0 | No distiller required to remove |
+| `magic` | 1 | All augments are magical |
+| `nodrop` | 0 | Freely tradeable |
+| `norent` | 0 | Persists across sessions |
+| `slots` | 2097150 | All equip slots except Charm (bits 1–20); includes Primary+Secondary for weapons |
+
+#### ID Allocations
+
+| Type | Range | Notes |
+|------|-------|-------|
+| Container | 147985 | Gem Cutting Station |
+| Garnet/Aquamarine T1 | 147986–147995 | 2 raw drops, 1 grindstone, 1 setting, 4 intermediates, 2 augments |
+| Garnet/Aquamarine T2 | 147996–148005 | same structure |
+| Garnet/Aquamarine T3 | 148006–148015 | same structure |
+| Garnet/Aquamarine T4 | 148016–148025 | same structure |
+| Pure stat/resist T1 | 148026–148073 | 12 gems × 4 IDs (raw, faceted, polished, aug) |
+| Pure stat/resist T2 | 148074–148121 | same structure |
+| Pure stat/resist T3 | 148122–148169 | same structure |
+| Pure stat/resist T4 | 148170–148217 | same structure |
+| Hybrid augments T2 | 148218–148225 | 8 hybrid families, augment items only (no raw drops) |
+| Hybrid augments T3 | 148226–148233 | same |
+| Hybrid augments T4 | 148234–148241 | same |
+| Grindstones | 147988, 147998, 148008, 148018 | T1–T4; vendor-sold, consumed in facet step |
+| Settings | 147989, 147999, 148009, 148019 | T1–T4; vendor-sold, salvages on failed aug combine |
+| Recipes (Garnet/Aquamarine) | 31440–31463 | 6 per tier × 4 tiers |
+| Recipes (pure stat/resist T1) | 31464–31499 | 3 per gem × 12 gems |
+| Recipes (pure stat/resist T2) | 31500–31535 | same |
+| Recipes (pure stat/resist T3) | 31536–31571 | same |
+| Recipes (pure stat/resist T4) | 31572–31607 | same |
+| Recipes (hybrid T2) | 31608–31615 | 1 per hybrid family |
+| Recipes (hybrid T3) | 31616–31623 | same |
+| Recipes (hybrid T4) | 31624–31631 | same |
+| Lootdrops (Garnet/Aquamarine) | 992072–992079 | 2 per tier × 4 tiers |
+| Lootdrops (pure stat/resist) | 992080–992127 | 12 per tier × 4 tiers |
+
+#### Migration Files
+
+| File | Contents |
+|------|---------|
+| `sql/20260606_gem_cutting_station.sql` | Container item + world object + NPC 760143 |
+| `sql/gemcutting/050_gc_t1_weathered.sql` | Garnet/Aquamarine T1 items + recipes |
+| `sql/gemcutting/051_gc_t2_reinforced.sql` | Garnet/Aquamarine T2 |
+| `sql/gemcutting/052_gc_t3_tempered.sql` | Garnet/Aquamarine T3 |
+| `sql/gemcutting/053_gc_t4_ascendant.sql` | Garnet/Aquamarine T4 |
+| `sql/gemcutting/054_gc_merchant.sql` | Merchant list 1000029 |
+| `sql/gemcutting/055_gc_loot_tables.sql` | Garnet/Aquamarine lootdrops (992072–992079) |
+| `sql/gemcutting/056_gc_pure_stats_t1.sql` | 12 pure gem families T1: items + recipes |
+| `sql/gemcutting/057_gc_pure_stats_t2.sql` | 12 pure gem families T2 |
+| `sql/gemcutting/058_gc_pure_stats_t3.sql` | 12 pure gem families T3 |
+| `sql/gemcutting/059_gc_pure_stats_t4.sql` | 12 pure gem families T4 |
+| `sql/gemcutting/060_gc_hybrids.sql` | 8 hybrid families T2–T4: items + recipes |
+| `sql/gemcutting/061_gc_new_loot_tables.sql` | Pure stat/resist lootdrops (992080–992127) |
+| `sql/gemcutting/062_gc_fix_hp_mana.sql` | UPDATE Garnet/Aquamarine HP/Mana to 5/10/20/40 |
+
+#### Crafting Chain
+
+**Pure gems (all 14 families, all tiers):**
+```
+2× Raw Drop + Grindstone → Faceted Gem
+2× Faceted Gem + Gem Polish (shared w/ Lapidary) → Polished Gem
+1× Polished Gem + Setting (salvages on fail) → Finished Augment
+```
+
+**Hybrid gems (8 families, T2–T4 only):**
+```
+1× Polished [Gem A] + 1× Polished [Gem B] + Setting (salvages on fail) → Hybrid Augment
+```
+Hybrids require mastering two pure gem lines first. No separate raw drops or intermediates.
+
+#### Augment Families — Pure (56 total: 14 × 4 tiers)
+
+**Stat augments** — scales +1 / +2 / +4 / +8
+
+| Gem | Stat | Icon |
+|-----|------|------|
+| Ruby of Might | STR (astr) | 964 |
+| Jasper of Fortitude | STA (asta) | 960 |
+| Topaz of Precision | DEX (adex) | 965 |
+| Peridot of Swiftness | AGI (aagi) | 958 |
+| Sapphire of Insight | WIS (awis) | 963 |
+| Amethyst of Intellect | INT (aint) | 962 |
+| Opal of Charm | CHA (acha) | 959 |
+
+**Resist augments** — scales +1 / +2 / +4 / +8
+
+| Gem | Resist | Icon |
+|-----|--------|------|
+| Jade of Warding | MR | 968 |
+| Citrine of Shielding | FR | 967 |
+| Moonstone of Endurance | CR | 966 |
+| Obsidian of Immunity | PR | 1138 |
+| Amber of Purity | DR | 953 |
+
+**Pool augments** — scales +5 / +10 / +20 / +40
+
+| Gem | Pool | Icon |
+|-----|------|------|
+| Garnet of Vitality | HP | 961 |
+| Aquamarine of Clarity | Mana | 963 |
+
+Tier name prefixes: Weathered (T1) / Reinforced (T2) / Tempered (T3) / Ascendant (T4).
+Full name example: `Tempered Ruby of Might`.
+
+#### Augment Families — Hybrid (24 total: 8 × T2/T3/T4)
+
+Hybrid stats: T2=+1/+1, T3=+2/+2, T4=+4/+4.
+
+| Gem | Stats | Components |
+|-----|-------|------------|
+| Bloodstone of Combat | STR + DEX | Polished Ruby + Polished Topaz |
+| Carnelian of War | STR + STA | Polished Ruby + Polished Jasper |
+| Tiger's Eye of the Hunt | DEX + AGI | Polished Topaz + Polished Peridot |
+| Lapis of Lore | INT + WIS | Polished Amethyst + Polished Sapphire |
+| Sunstone of the Divine | WIS + CHA | Polished Sapphire + Polished Opal |
+| Hawk's Eye of the Guardian | AGI + STA | Polished Peridot + Polished Jasper |
+| Banded Agate of Elements | FR + CR | Polished Citrine + Polished Moonstone |
+| Malachite of Nature | DR + PR | Polished Amber + Polished Obsidian |
+
+No T1 hybrids — +1 cannot be split evenly. Hybrids start at T2.
+Tier name prefixes: Reinforced (T2) / Tempered (T3) / Ascendant (T4).
+
+#### Trivial Progression
+
+| Step | T1 | T2 | T3 | T4 |
+|------|----|----|----|----|
+| Facet (raw → faceted) | 25 | 75 | 115 | 145 |
+| Polish (faceted → polished) | 40 | 90 | 130 | 160 |
+| Augment (polished → finished) | 60 | 115 | 155 | 185 |
+| Hybrid combine | — | 120 | 160 | 190 |
+
+#### Drop System
+
+Raw gem drops added as independent lootdrop groups appended to the existing tier loottables (111003–111006). Drop rate: 10% per gem type (lower than raw mats at 15% since 12+ gem types exist per tier).
+
+All raw gem drops: `nodrop=0, norent=0`, stackable. Hybrid augments have no raw drops — they consume polished pure gems as ingredients.
+
+| Lootdrop IDs | Tier | Gems |
+|-------------|------|------|
+| 992072–992073 | T1 | Rough Garnet, Rough Aquamarine |
+| 992074–992075 | T2 | Pale Garnet Chip, Pale Aquamarine Chip |
+| 992076–992077 | T3 | Deep Garnet Crystal, Deep Aquamarine Crystal |
+| 992078–992079 | T4 | Brilliant Garnet Core, Brilliant Aquamarine Core |
+| 992080–992091 | T1 | Rough Ruby/Jasper/Topaz/Peridot/Sapphire/Amethyst/Opal/Jade/Citrine/Moonstone/Obsidian/Amber |
+| 992092–992103 | T2 | Pale [Gem] Chip × 12 |
+| 992104–992115 | T3 | Deep [Gem] Crystal × 12 |
+| 992116–992127 | T4 | Brilliant [Gem] Core × 12 |
+
+#### Item Counts
+
+- 8 raw drop items (Garnet/Aquamarine × 4 tiers)
+- 48 raw drop items (12 pure gem families × 4 tiers)
+- 48 faceted intermediates (12 families × 4 tiers)
+- 48 polished intermediates (12 families × 4 tiers)
+- 8 finished pool augments (Garnet/Aquamarine × 4 tiers)
+- 48 finished pure stat/resist augments (12 families × 4 tiers)
+- 24 finished hybrid augments (8 families × T2/T3/T4)
+- **80 total augments**
+- 192 total recipes (168 pure + 24 hybrid)
 
 ## Ports (devcontainer.json)
 
