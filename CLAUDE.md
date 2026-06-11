@@ -8,10 +8,10 @@ Run the following to build and start all server processes:
 make shared
 make login
 make world
-make zonex5
+make zonex25
 ```
 
-`make zonex5` starts 5 idle zone processes (required for instance booting).
+`make zonex25` starts 25 idle zone processes (required for instance booting).
 
 ## Devcontainer Network Configuration
 
@@ -52,26 +52,23 @@ Then restart all zones (all idle counts drop to 0) and reboot 5 fresh ones.
 
 ## Zone Port Drift
 
-Zone processes must land on ports **7000–7007** (the only UDP ports forwarded from host to container). If zones drift above 7007 (visible via `ss -tulpn | grep 70`), players will get stuck on loading screens because the EQ client can't reach the zone port.
+Zone processes must land on ports **7000–7024** (the only UDP ports forwarded from host to container). If zones drift above 7024 (visible via `ss -tulpn | grep 70`), players will get stuck on loading screens because the EQ client can't reach the zone port.
 
-**Cause:** the world server increments its port counter every time a zone registers. Rapid kill/restart cycles push the counter past 7007.
+**Cause:** the world server increments its port counter every time a zone registers. Rapid kill/restart cycles push the counter past 7024.
 
 **Fix — full reset:**
 
 ```sh
 # Kill everything except loginserver
-kill $(pgrep zone) 2>/dev/null
-kill $(pgrep -f "\./world") 2>/dev/null
+pkill -f "zone$" 2>/dev/null
+pkill -f "world$" 2>/dev/null
 sleep 2
 
 # Restart world then idle zones
 cd /src/build/bin
 ./world >> logs/world.log 2>&1 &
-sleep 3
-for i in 1 2 3 4 5; do
-  (cd /src/build/bin && /src/build/bin/zone >> logs/zone/idle_$i.log 2>&1) &
-  sleep 1
-done
+sleep 4
+make -C /src zonex25
 ```
 
 Verify ports are back in range:
@@ -83,7 +80,7 @@ for pid in $(pgrep zone); do
 done
 ```
 
-All zones should show 7000–7007. If any show higher, repeat the reset.
+All zones should show 7000–7024. If any show higher, repeat the reset.
 
 ## Restarting Servers
 
@@ -131,11 +128,32 @@ Tasks 990201–990217, DZ templates 1000–1016. Players speak to the Instance R
 
 **Dungeon zones:** blackburrow, befallen, crushbone, runnyeye, soldunga, guktop, gukbottom, dalnir, crystal, frozenshadow, mistmoore, chardok, sebilis, charasis, citymist, akheva, sseru
 
-**Item 990002** — Dungeon Progression Token: `nodrop=1, norent=1` (tradeable, persistent). Granted on task completion.
+**Item 990002** — Dungeon Progression Token: `nodrop=1, norent=1` (tradeable, persistent, stackable to 1000). Granted on task completion. Task completion also credits 1 point to alt currency ID 57 (Dungeon Progression Token) so the player's balance shows in Dravek the Archivist's vendor window without a separate deposit step.
 
 ### Omens of War Loot Filtering
 
 `global_npc.lua` strips non-tradeskill, non-quest loot from all trash NPCs (name starts with `a_` / `an_`) in OoW zones at spawn time. Named NPCs are untouched. Results cached per item ID for the zone process lifetime. OoW zone IDs: 6, 25, 35, 37–42, 77–83, 91–94, 161, 299, 315, 429.
+
+### Item Flag Conventions
+
+EQEmu uses an **inverted boolean** for several item flags. The DB value maps directly to the EQ client field with no conversion, and the client treats 0 as "flag active":
+
+| Goal | DB field | Value |
+|------|----------|-------|
+| Freely tradeable | `nodrop` | **1** |
+| No Trade (bound) | `nodrop` | **0** |
+| Persistent (survives logout) | `norent` | **1** |
+| Temporary (disappears on logout) | `norent` | **0** |
+| Magical | `magic` | **1** |
+| No lore restriction | `loregroup` | **0** |
+
+**All custom tradeskill items** (IDs 147500–148241) use `nodrop=1, norent=1, magic=1, loregroup=0`.
+
+**Armor size:** all custom armor pieces use `size=1` (SMALL) so every race can equip them without restriction. Item size only affects bag storage in EQEmu, not equipping.
+
+**Weapon size:** 1H weapons use `size=3` (LARGE). 2H weapons, staves, halberds, and bows use `size=3` (LARGE). **Never use `size=4` (GIANT) on any custom item** — GIANT causes the EQ client to render aug slot descriptions at the top of the item window (above the item name) instead of at the bottom. LARGE does not have this bug.
+
+**Aug slot visibility:** `augslotNvisible=0` removes the slot entirely — players cannot insert augments. Always use `augslotNvisible=1` for active slots. The "Slot N, type 10 (Crafted: Common): empty" text at the top of the item description is standard EQ client behavior for visible aug slots and cannot be repositioned.
 
 ### Custom Blacksmithing System
 
@@ -222,7 +240,7 @@ Mail and Plate share the same refined bar and flux within each tier.
 | T3 | Bolt of Fine Silk | Silk-Quilted Pad | Tempered Leather Sheet | Tempered Leather Panel | Steel Alloy Bar | Steel Ring | Tempered Chain Bundle | Steel Metal Sheet | Hardened Plate Section |
 | T4 | Bolt of Enchanted Silk | Arcane Cloth Padding | Ascendant Leather Sheet | Ascendant Leather Panel | Ascendant Refined Bar | Mithril Ring | Ascendant Chain Bundle | Mithril Sheet | Ascendant Plate Section |
 
-#### Patterns (16 total — one per tier per armor type, nodrop/norent)
+#### Patterns (16 total — one per tier per armor type, tradeable and persistent)
 
 | Tier | Cloth | Leather | Mail | Plate |
 |------|-------|---------|------|-------|
@@ -361,6 +379,7 @@ All mob drops: `nodrop=1, norent=1`, stackable. Named mobs (name not starting wi
 | 760141 | Weapon_Molds_Merchant | Weapon Molds | 41 | 1000027 | 64 weapon/shield/bow molds (all tiers) |
 | 760142 | Gem_Merchant | Gem Supplies | 41 | 1000028 | Lapidary molds + gem polish (all tiers) |
 | 760143 | Gem_Cutter | Gem Cutting Supplies | 41 | 1000029 | Grindstones + augment settings (all tiers) |
+| 760144 | Dravek_the_Archivist | Dungeon Expedition Rewards | 70 | 1000030 | Alt currency merchant (class=70 required). Alt currency ID 57 = item 990002. Players deposit physical tokens via the vendor window; task completion also auto-credits 1 point via AddAlternateCurrencyValue(57,1). |
 
 All modeled after An_Emberwatch_Guard (NPC 998038): race=413, size=9, 100k HP, level 48.
 
@@ -408,7 +427,7 @@ Item 147521 (Weathered Cloth Robe): `idfile=IT63, material=13` — Oracle Robe a
 
 Migration files: `/src/sql/weaponsmithing/`
 
-All weapon smithing combines use a dedicated in-world forge. Shares the Blacksmithing skill (tradeskill=63, max 200) with the armor system. All items have `nodrop=0, norent=0, reqlevel=0` — freely tradeable with no level restriction.
+All weapon smithing combines use a dedicated in-world forge. Shares the Blacksmithing skill (tradeskill=63, max 200) with the armor system. All items have `nodrop=1, norent=1, reqlevel=0` — freely tradeable with no level restriction.
 
 #### Forge
 
@@ -613,7 +632,7 @@ Tier bands overlap: T2 billet (62) becomes available before T1 Staff is trivial 
 
 Weapon drops added as separate lootdrop groups to the existing armor smithing loottables (111003–111006). NPCs roll each group independently — a single kill may drop armor materials, weapon materials, or catalysts, but typically nothing crafting-related.
 
-All weapon drop items: `nodrop=0, norent=0`, stackable. Named mobs keep their existing loottables.
+All weapon drop items: `nodrop=1, norent=1`, stackable. Named mobs keep their existing loottables.
 
 **Weapon-exclusive drops per tier:**
 
@@ -744,7 +763,7 @@ These items drop from mobs and are also sold on merchant list 1000028.
 
 #### Accessory Stats
 
-Stats double each tier. All accessories: `nodrop=0, norent=0`, freely tradeable.
+Stats double each tier. All accessories: `nodrop=1, norent=1`, freely tradeable.
 
 | Slot | T1 | T2 | T3 | T4 |
 |------|----|----|----|----|
@@ -768,7 +787,7 @@ Stats double each tier. All accessories: `nodrop=0, norent=0`, freely tradeable.
 
 #### Drop System
 
-All mob drops: `nodrop=0, norent=0`, stackable. Drop rate: 15% for stone/metal drops, 10% for clasps and polish.
+All mob drops: `nodrop=1, norent=1`, stackable. Drop rate: 15% for stone/metal drops, 10% for clasps and polish.
 
 | Lootdrop ID | Item | Rate | Tier |
 |-------------|------|------|------|
@@ -873,8 +892,8 @@ All finished Gem Cutting augments share these fields:
 | `augrestrict` | 0 | No item-type restriction — fits armor, weapons, accessories |
 | `augdistiller` | 0 | No distiller required to remove |
 | `magic` | 1 | All augments are magical |
-| `nodrop` | 0 | Freely tradeable |
-| `norent` | 0 | Persists across sessions |
+| `nodrop` | 1 | Freely tradeable |
+| `norent` | 1 | Persists across sessions |
 | `slots` | 2097150 | All equip slots except Charm (bits 1–20); includes Primary+Secondary for weapons |
 
 #### ID Allocations
@@ -1005,7 +1024,7 @@ Tier name prefixes: Reinforced (T2) / Tempered (T3) / Ascendant (T4).
 
 Raw gem drops added as independent lootdrop groups appended to the existing tier loottables (111003–111006). Drop rate: 10% per gem type (lower than raw mats at 15% since 12+ gem types exist per tier).
 
-All raw gem drops: `nodrop=0, norent=0`, stackable. Hybrid augments have no raw drops — they consume polished pure gems as ingredients.
+All raw gem drops: `nodrop=1, norent=1`, stackable. Hybrid augments have no raw drops — they consume polished pure gems as ingredients.
 
 | Lootdrop IDs | Tier | Gems |
 |-------------|------|------|
@@ -1037,5 +1056,5 @@ The following UDP ports are forwarded from host → container:
 | Port | Process |
 |------|---------|
 | 5998/5999 | Login server |
-| 7000–7007 | Zone servers |
+| 7000–7024 | Zone servers |
 | 9000/9001 | World server |

@@ -104,6 +104,25 @@ zone: is-vscode check-mariadb
 	@find build/bin/logs/zone/ -type f -name 'zone*.log' -exec rm -f {} +
 	cd build/bin && ./zone
 
+# Starts idle zone processes in the background
+.PHONY: zonex5
+zonex5: is-vscode check-mariadb
+	@mkdir -p build/bin/logs/zone/
+	@for i in 1 2 3 4 5; do \
+		(cd /src/build/bin && /src/build/bin/zone >> /src/build/bin/logs/zone/idle_$$i.log 2>&1) & \
+		sleep 1; \
+	done
+	@echo "Started 5 idle zone processes"
+
+.PHONY: zonex25
+zonex25: is-vscode check-mariadb
+	@mkdir -p build/bin/logs/zone/
+	@for i in $$(seq 1 25); do \
+		(cd /src/build/bin && /src/build/bin/zone >> /src/build/bin/logs/zone/idle_$$i.log 2>&1) & \
+		sleep 1; \
+	done
+	@echo "Started 25 idle zone processes"
+
 check-mariadb: is-vscode
 	@if ! sudo service mariadb status | grep -q 'active (running)'; then \
 		sudo service mariadb start; \

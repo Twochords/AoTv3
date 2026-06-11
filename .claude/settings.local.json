@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(xargs grep -l \"schema\\\\|migration\\\\|version\")"
+      "Bash(xargs grep -l \"schema\\\\|migration\\\\|version\")",
+      "Bash(mysql -h127.0.0.1 -upeq -ppeqpass peq -e \"DESCRIBE dynamic_zones;\")",
+      "Bash(mysql -h127.0.0.1 -upeq -ppeqpass peq -e \"SELECT COUNT\\(*\\) FROM shared_tasks;\")"
     ]
   }
 }
