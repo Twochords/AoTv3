@@ -1349,6 +1349,12 @@ void DynamicZone::ProcessLeaderChanged(uint32_t new_leader_id)
 
 bool DynamicZone::CanClientLootCorpse(Client* client, uint32_t npc_type_id, uint32_t entity_id)
 {
+	// PD expedition chest is always lootable by anyone in the instance
+	if (npc_type_id == 760145)
+	{
+		return true;
+	}
+
 	// non-members of a dz cannot loot corpses inside the dz
 	if (!HasMember(client->CharacterID()))
 	{
